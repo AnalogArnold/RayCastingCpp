@@ -25,10 +25,8 @@ int image_height = (image_width/aspect_ratio); // px
 // C++, NumPy, and ScratchAPixel all use the row-major, so equations would be different and I don't want to tamper with that.
 using EiMatrix4d = Eigen::Matrix<double, 4, 4, Eigen::StorageOptions::RowMajor>; // 4x4 matrix
 using EiVector3d = Eigen::Matrix<double, 1, 3, Eigen::StorageOptions::RowMajor>; // row vector (3D)
-using EiVector3dC = Eigen::Matrix<double, 3, 1, Eigen::StorageOptions::RowMajor>; // column vector (3D)
 using RmMatrixXd = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 using EiVectorXd = Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>; // Matrix storing X x 3 elements; mostly for coordinates to avoid having to loop constantly in the intersection code to get cross products etc.
-
 
 // Camera
 
@@ -182,28 +180,50 @@ EiVectorXd mat_cross_product(EiVectorXd &mat1, EiVectorXd &mat2) {
     return cross_product_result;
 }
 
-intersection_output intersect_plane(Ray &ray, RmMatrixXd nodes) {
-    EiVectorXd ray_direction = ray.direction;
-    EiVector3d ray_origin = ray.origin;
+/* Types so I don't make a mess:
+ * Defining in Eigen: <variable_type, rows, columns>
+ *Already existing type: RowVectorXd = Matrix<double, 1, Eigen::Dynamic>
+ *
+ *
+* using EiMatrix4d = Eigen::Matrix<double, 4, 4, Eigen::StorageOptions::RowMajor>; // 4x4 matrix
+using EiVector3d = Eigen::Matrix<double, 1, 3, Eigen::StorageOptions::RowMajor>; // row vector (3D)
+using RmMatrixXd = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+using EiVectorXd = Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>; // Matrix storing X x 3 elements;
+*/
 
+intersection_output intersect_plane(Ray &ray, RmMatrixXd nodes) {
+    // Declare everything on the top because otherwise I get confused what is what
+    // Ray data
+    EiVectorXd ray_direction = ray.direction; // EiVector3D, but keeping it as Xd so it works with the cross product function
+    EiVector3d ray_origin = ray.origin; // Size 3 x 1
+    // Edges
+    EiVectorXd edge0, edge1, nEdge2; // All are faces x 3-coords
     long long number_of_elements = nodes.rows(); // number of rows = number of triangles, will give us indices for some bits
-    Eigen::ArrayXXd barycentric_coordinates(number_of_elements, 3);
+    // Intersections and barycentric coordinates
+    EiVectorXd p_vec, t_vec, q_vec;
+    EiVectorXd determinants, inverse_determinants;
+    EiVector3d barycentric_u, barycentric_v, barycentric_w; // These are faces x 1 (double value) each. Type needs changing
+    Eigen::ArrayXXd barycentric_coordinates(number_of_elements, 3); // Array so we can do things element-wise with those
     EiVectorXd plane_normals(number_of_elements, 3);
+    EiVectorXd t_values;
+
+
+
 
     // Define default negative output if there is no intersection
     intersection_output negative_output {
         EiVectorXd::Constant(number_of_elements, 1, std::numeric_limits<double>::infinity()), EiVectorXd::Zero(number_of_elements, 3), Eigen::ArrayXXd(number_of_elements, 3)};
 
-    EiVectorXd edge0 = nodes.block(0, 3, nodes.rows(), 3) - nodes.block(0, 0, nodes.rows(), 3);
-    EiVectorXd edge1 = nodes.block(0, 6, nodes.rows(), 3) - nodes.block(0, 3, nodes.rows(), 3);
+    edge0 = nodes.block(0, 3, nodes.rows(), 3) - nodes.block(0, 0, nodes.rows(), 3);
+    edge1 = nodes.block(0, 6, nodes.rows(), 3) - nodes.block(0, 3, nodes.rows(), 3);
     // Edge 2 = node(0) - node(2), but since we always use its negative value in calculations, calculate nEdge2 = node(2) - node(0)
-    EiVectorXd nEdge2 = nodes.block(0, 6, nodes.rows(), 3) - nodes.block(0, 0, nodes.rows(), 3);
+    nEdge2 = nodes.block(0, 6, nodes.rows(), 3) - nodes.block(0, 0, nodes.rows(), 3);
 
     plane_normals = mat_cross_product(edge0, nEdge2); // not normalised!
 
     // Step 1: Quantities for the Moller Trumbore method
-    EiVectorXd p_vec = mat_cross_product(ray_direction, edge1);
-    EiVectorXd determinants = edge0.cwiseProduct(p_vec);
+    p_vec = mat_cross_product(ray_direction, edge1);
+    determinants = edge0.cwiseProduct(p_vec);
 
     // Step 2: Culling.
     //Determinant negative -> triangle is back-facing. If det is close to 0, ray misses the triangle.
@@ -214,10 +234,10 @@ intersection_output intersect_plane(Ray &ray, RmMatrixXd nodes) {
         return negative_output; // No intersection - return infinity
     }
 
-    EiVectorXd inverse_determinants = determinants.inverse();
-    EiVectorXd t_vec = ray_origin - nodes.block(0, 0, nodes.rows(), 3);
+    inverse_determinants = determinants.inverse();
+    t_vec = ray_origin - nodes.block(0, 0, nodes.rows(), 3);
 
-    EiVector3d barycentric_u = t_vec.cwiseProduct(p_vec) * inverse_determinants;
+    barycentric_u = t_vec.cwiseProduct(p_vec) * inverse_determinants;
 
 
     valid_mask = (barycentric_u.array() >= 0) && (barycentric_u.array() <= 1);
@@ -225,8 +245,8 @@ intersection_output intersect_plane(Ray &ray, RmMatrixXd nodes) {
         return negative_output; //  No intersection - return infinity
     }
 
-    EiVectorXd q_vec = mat_cross_product(t_vec, edge0);
-    EiVector3d barycentric_v = ray_direction.cwiseProduct(q_vec) * inverse_determinants;
+    q_vec = mat_cross_product(t_vec, edge0);
+    barycentric_v = ray_direction.cwiseProduct(q_vec) * inverse_determinants;
 
     // need to add condition for barycentric_v < 0 or barycentric_u + barycentric_v > 1
     /*
@@ -238,7 +258,7 @@ intersection_output intersect_plane(Ray &ray, RmMatrixXd nodes) {
         return negative_output; // No intersection - return infinity)
     }
 
-    EiVectorXd t_values = nEdge2.cwiseProduct(q_vec) * inverse_determinants; // t value for the ray intersections
+    t_values = nEdge2.cwiseProduct(q_vec) * inverse_determinants; // t value for the ray intersections
     valid_mask = (t_values.array() >= ray.t_min) && (t_values.array() <= ray.t_max);
     // Iterate through all t_values and set them to infinity if they don't satisfy the conditions imposed by the mask
     // add contidion for t_values > ray min and t_values < t_max
@@ -250,7 +270,7 @@ intersection_output intersect_plane(Ray &ray, RmMatrixXd nodes) {
         }
     }
 
-    EiVector3d barycentric_w = barycentric_u - barycentric_v;
+    barycentric_w = barycentric_u - barycentric_v;
     barycentric_coordinates.col(0) = barycentric_u;
     barycentric_coordinates.col(1) = barycentric_v;
     barycentric_coordinates.col(2) = barycentric_w;
