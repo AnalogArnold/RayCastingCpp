@@ -59,6 +59,7 @@ private:
         EiVector3d basis_vector_up = (basis_vector_forward.cross(basis_vector_right)).normalized();
 
         // Fill the top-left 3x3 block with the 3 basis vectors as rows
+
         matrix_camera_to_world.block<1,3>(0,0) = basis_vector_right;
         matrix_camera_to_world.block<1,3>(1,0) = basis_vector_up;
         matrix_camera_to_world.block<1,3>(2,0) = basis_vector_forward;
@@ -123,7 +124,7 @@ inline void set_face_normal(const Ray &ray, EiVector3d &normal_surface) {
 }
 
 //////////////////////////////////// CROSS-PRODUCT
-EiVectorD3d mat_cross_product(EiVectorD3d &mat1, EiVectorD3d &mat2) {
+EiVectorD3d mat_cross_product(const EiVectorD3d &mat1, const EiVectorD3d &mat2) {
     // Row-wise cross product for 2 matrices (i.e., treating each row as a vector).
     // Also works for multiplying a matrix with a row vector, so the input order determines the multiplication order. Happy days.
     // Written because this otherwise can't be a one-liner like in NumPy - Eigen's cross product works only for vector types.
@@ -175,7 +176,7 @@ struct IntersectionOutput {
     Eigen::ArrayXXd barycentric_coordinates; // size elements x 3
 };
 
-IntersectionOutput intersect_plane(Ray &ray, EiMatrixDd nodes) {
+IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     // Declare everything on the top because else I get very confused
     long long number_of_elements = nodes.rows(); // number of rows = number of triangles, will give us indices for some bits
     // Ray data
@@ -218,8 +219,7 @@ IntersectionOutput intersect_plane(Ray &ray, EiMatrixDd nodes) {
     }
     // Step 3: Test if ray is in front of the triangle
     inverse_determinants = determinants.array().inverse(); // Element-wise inverse
-    t_vec = ray_origins - nodes.block(0, 0, nodes.rows(), 3); // Broadcast ray_origin; AI suggestion, don't trust
-    //t_vec = ray_origin - nodes.block(0, 0, nodes.rows(), 3);
+    t_vec = ray_origins - nodes.block(0, 0, nodes.rows(), 3);
     barycentric_u = (t_vec.array() * p_vec.array()).rowwise().sum().matrix().array() * inverse_determinants.array();    // need to add condition for barycentric_v < 0 or barycentric_u + barycentric_v > 1
     // Check barycentric_u
     valid_mask = valid_mask && (barycentric_u.array() >= 0) && (barycentric_u.array() <= 1);
@@ -252,15 +252,31 @@ IntersectionOutput intersect_plane(Ray &ray, EiMatrixDd nodes) {
 
 }
 
-
 //////////////////////////////////// COLOR RAY
 EiVector3d return_ray_color(const Ray &ray) {
 // Returns the color for a given ray. If the ray intersects an object, return colour. Otherwise, return blue sky gradient.
+    EiMatrixDd node_coords_test(2,9);
+    EiVectorD3d color_test;
+    color_test.row(0) << 1.0, 0.0, 0.0;
+    color_test.row(1) << 0.0, 1.0, 1.0;
+    color_test.row(2) << 1.0, 0.0, 1.0;
+    node_coords_test.row(0) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0;
+    node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
+    std::cout << "nodes.rows() = " << node_coords_test.rows() << ", nodes.cols() = " << node_coords_test.cols() << std::endl;
     HitRecord intersection_record; // Create HitRecord struct
-    // Find all intersections at once
-    // HOW DO I DO THISSSSSSSSSSS I'm overwhelmed, anyway, will have to return struct bc else I can't return multiple values in CPP. Sad times.
-
+    IntersectionOutput intersection = intersect_plane(ray, node_coords_test);
+    Eigen::Index minRowIndex, minColIndex;
+    intersection.t_values.minCoeff(&minRowIndex, &minColIndex); // Find indices of the smallest t_value
+    double closest_t = intersection.t_values(minRowIndex, minColIndex);
+    if (closest_t < intersection_record.t) {
+        intersection_record.t = closest_t;
+        intersection_record.barycentric_coordinates = intersection.barycentric_coordinates.row(minRowIndex);
+        intersection_record.point_intersection = ray_at_t(closest_t, ray);
+        intersection_record.normal_surface = intersection.plane_normals.row(minRowIndex);
+    }
     if (intersection_record.t != std::numeric_limits<double>::infinity()) { // Instead of keeping a bool hit_anything, check if t value has changed from the default
+        set_face_normal(ray, intersection_record.normal_surface);
+        return intersection_record.barycentric_coordinates(0) * color_test.row(0) + intersection_record.barycentric_coordinates(1) * color_test.row(2) + intersection_record.barycentric_coordinates(2) * color_test.row(2);
         //return color
     }
     // Blue sky gradient
