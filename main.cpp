@@ -186,7 +186,8 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     EiVectorD3d ray_directions = ray_direction.replicate(number_of_elements, 1);
     EiVectorD3d ray_origins = ray_origin.replicate(number_of_elements, 1);
     // Edges
-    EiVectorD3d edge0, edge1, nEdge2; // shape (faces, 3) each
+    EiMatrixDd edge0, edge1, nEdge2; // shape (faces, 3) each
+    //EiVectorD3d edge0, edge1, nEdge2; // shape (faces, 3) each
     // Intersections and barycentric coordinates
     EiVectorD3d p_vec, t_vec, q_vec; // shape (faces, 3) each
     EiVectorD3d plane_normals; // Shape (faces, 3)
@@ -202,30 +203,40 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
 
     // Calculations - edges and normals
     edge0 = nodes.block(0, 3, nodes.rows(), 3) - nodes.block(0, 0, nodes.rows(), 3);
-    edge1 = nodes.block(0, 6, nodes.rows(), 3) - nodes.block(0, 3, nodes.rows(), 3);
+    edge1 = nodes.block(0, 6, nodes.rows(), 3)  - nodes.block(0, 3, nodes.rows(), 3);
     nEdge2 = nodes.block(0, 6, nodes.rows(), 3) - nodes.block(0, 0, nodes.rows(), 3);
     plane_normals = mat_cross_product(edge0, nEdge2); // not normalised!
 
     // Step 1: Quantities for the Moller Trumbore method
-    p_vec = mat_cross_product(ray_directions, edge1);
+    p_vec = mat_cross_product(ray_directions, nEdge2);
     determinants = (edge0.array() * p_vec.array()).rowwise().sum(); // Row-wise dot product
-
+    //std::cout << "determinants: " << determinants.transpose() << std::endl;
     // Step 2: Culling.
     //Determinant negative -> triangle is back-facing. If det is close to 0, ray misses the triangle.
     // If determinant is close to 0, ray and triangle are parallel and ray misses the triangle.
-    Eigen::Array<bool, Eigen::Dynamic, Eigen::Dynamic> valid_mask = determinants.array().abs() > 1e-6;
+
+    Eigen::Array<bool, Eigen::Dynamic, Eigen::Dynamic> valid_mask = determinants.array().abs() > 1e-6 && determinants.array() > 0;
     if (!valid_mask.any()) {
+        //std::cout << "Condition 1 triggered" << std::endl;
         return negative_output; // No intersection - return infinity
     }
+
     // Step 3: Test if ray is in front of the triangle
     inverse_determinants = determinants.array().inverse(); // Element-wise inverse
-    t_vec = ray_origins - nodes.block(0, 0, nodes.rows(), 3);
-    barycentric_u = (t_vec.array() * p_vec.array()).rowwise().sum().matrix().array() * inverse_determinants.array();    // need to add condition for barycentric_v < 0 or barycentric_u + barycentric_v > 1
+    //std::cout << "inverse_determinants: " << inverse_determinants.transpose() << std::endl;
+    t_vec = ray_origins - nodes.block(0, 0, nodes.rows(), 3); // is ok, returns 0s due to what data I gave it. MOVE CAMERA CENTER TOMORROW
+    //std::cout << "rows " << t_vec.rows() << "cols " << t_vec.cols() << std::endl;
+    //std::cout << "t_vec: " << t_vec.transpose() << std::endl;
+    //barycentric_u = (t_vec.array() * p_vec.array()).rowwise().sum().matrix().array() * inverse_determinants.array();
     // Check barycentric_u
-    valid_mask = valid_mask && (barycentric_u.array() >= 0) && (barycentric_u.array() <= 1);
+    //valid_mask = valid_mask && (barycentric_u.array() >= 0) && (barycentric_u.array() <= 1);
+    //std::cout << "barycentric_u: " << barycentric_u.transpose() << std::endl;
+/*
     if (!valid_mask.any()) {
+        std::cout << "Condition 2 triggered" << std::endl;
         return negative_output; // No intersection - return infinity
     }
+
     q_vec = mat_cross_product(t_vec, edge0);
     barycentric_v = (ray_directions.array() * q_vec.array()).rowwise().sum().matrix().array() * inverse_determinants.array();
     // Check barycentric_v and sum
@@ -247,7 +258,7 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     barycentric_w = 1.0 - barycentric_u.array() - barycentric_v.array();
     barycentric_coordinates.col(0) = barycentric_u;
     barycentric_coordinates.col(1) = barycentric_v;
-    barycentric_coordinates.col(2) = barycentric_w;
+    barycentric_coordinates.col(2) = barycentric_w; */
     return IntersectionOutput{t_values, plane_normals, barycentric_coordinates};
 
 }
@@ -256,16 +267,17 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
 EiVector3d return_ray_color(const Ray &ray) {
 // Returns the color for a given ray. If the ray intersects an object, return colour. Otherwise, return blue sky gradient.
     EiMatrixDd node_coords_test(2,9);
-    EiVectorD3d color_test;
+    EiVectorD3d color_test(3,3);
     color_test.row(0) << 1.0, 0.0, 0.0;
     color_test.row(1) << 0.0, 1.0, 1.0;
     color_test.row(2) << 1.0, 0.0, 1.0;
     node_coords_test.row(0) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0;
     node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
-    std::cout << "nodes.rows() = " << node_coords_test.rows() << ", nodes.cols() = " << node_coords_test.cols() << std::endl;
+
     HitRecord intersection_record; // Create HitRecord struct
     IntersectionOutput intersection = intersect_plane(ray, node_coords_test);
     Eigen::Index minRowIndex, minColIndex;
+/*
     intersection.t_values.minCoeff(&minRowIndex, &minColIndex); // Find indices of the smallest t_value
     double closest_t = intersection.t_values(minRowIndex, minColIndex);
     if (closest_t < intersection_record.t) {
@@ -279,6 +291,7 @@ EiVector3d return_ray_color(const Ray &ray) {
         return intersection_record.barycentric_coordinates(0) * color_test.row(0) + intersection_record.barycentric_coordinates(1) * color_test.row(2) + intersection_record.barycentric_coordinates(2) * color_test.row(2);
         //return color
     }
+    */
     // Blue sky gradient
     double a = 0.5 * (ray.direction.normalized()(1) + 1.0);
     EiVector3d color = (1.0 - a) * (EiVector3d() << 1.0, 1.0, 1.0).finished() + a * (EiVector3d() << 0.5, 0.7, 1.0).finished();
@@ -316,8 +329,5 @@ void render_ppm_image(const Camera& camera1) {
 int main() {
     Camera camera1;
     render_ppm_image(camera1);
-    //std::cout << camera1.matrix_camera_to_world << std::endl << camera1.pixel_00_center;
-    //Ray test_ray((EiVector3d() << -0.5, 1.1, 1.1).finished(), (EiVector3d() << 4.132331920978222, -2.603127666416139, 1.1937133836332001).finished(), 0, std::numeric_limits<double>::infinity());
-   // std::cout << test_ray.direction;
     return 0;
 }
