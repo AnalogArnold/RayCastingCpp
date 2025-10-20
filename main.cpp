@@ -4,6 +4,10 @@
 #include <fstream>
 #include <limits>
 #include "./Eigen/Dense" // Since pyvale uses Eigen, might as well use their implementation of a 3D vector at compile time? I saw it being used in pyvale (dicsmooth) anyway
+#include <array>
+#include <iostream>
+#include <vector>
+
 
 inline double degreesToRadians(double angleDeg) {
     // Converts degrees to radians. Used to convert the angle of vertical view.
@@ -94,7 +98,7 @@ private:
 //////////////////////////////////// RAYS
 struct Ray {
     //EIGEN_MAKE_ALIGNED_OPERATOR_NEW; // Required for structures using Eigen members
-    //Eigen::Matrix<double, 3, 1, Eigen::StorageOptions::RowMajor, Eigen:: Aligned8> origin; // might have to experiment with this later to make Rays smaller as atm the vectors themselves take up 48 bytes
+    //Eigen::Matrix<double, 3, 1, Eigen::StorageOptions::RowMajor, Eigen:: Aligned8> origin;
     EiVector3d origin;
     EiVector3d direction;
     double t_min;
@@ -172,8 +176,16 @@ EiVectorD3d mat_cross_product(const EiVectorD3d &mat1, const EiVectorD3d &mat2) 
 //////////////////////////////////// INTERSECTION
 struct IntersectionOutput {
     Eigen::Vector<double, Eigen::Dynamic> t_values; // size elements x 1
+    Eigen::Vector3d test;
+    EiVector3d test2;
     EiVectorD3d plane_normals; // size elements x 3
     Eigen::ArrayXXd barycentric_coordinates; // size elements x 3
+};
+
+struct Output2 {
+    double test_vec[1][3];
+    double test_3[3][1];
+    std::vector<std::array<double,3> > test_vec2;
 };
 
 IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
@@ -224,13 +236,16 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     // Step 3: Test if ray is in front of the triangle
     inverse_determinants = determinants.array().inverse(); // Element-wise inverse
     //std::cout << "inverse_determinants: " << inverse_determinants.transpose() << std::endl;
-    t_vec = ray_origins - nodes.block(0, 0, nodes.rows(), 3); // is ok, returns 0s due to what data I gave it. MOVE CAMERA CENTER TOMORROW
-    //std::cout << "rows " << t_vec.rows() << "cols " << t_vec.cols() << std::endl;
+    t_vec = ray_origins.array() - nodes.block(0, 0, nodes.rows(), 3).array(); // is ok, may return 0s depending on data passed, but tested with moving the camera center and works.
+    //std::cout << "orig: " << ray_origin << std::endl;
+    //std::cout << "block: " << nodes.block(0, 0, 1, 3) << std::endl;
     //std::cout << "t_vec: " << t_vec.transpose() << std::endl;
+    // WIP: FIX BARYCENTRIC U
+    barycentric_u = mat_cross_product(t_vec, p_vec).matrix.array() * inverse_determinants.array();
     //barycentric_u = (t_vec.array() * p_vec.array()).rowwise().sum().matrix().array() * inverse_determinants.array();
+    std::cout << "barycentric_u: " << barycentric_u.transpose() << std::endl;
     // Check barycentric_u
     //valid_mask = valid_mask && (barycentric_u.array() >= 0) && (barycentric_u.array() <= 1);
-    //std::cout << "barycentric_u: " << barycentric_u.transpose() << std::endl;
 /*
     if (!valid_mask.any()) {
         std::cout << "Condition 2 triggered" << std::endl;
@@ -328,6 +343,7 @@ void render_ppm_image(const Camera& camera1) {
 
 int main() {
     Camera camera1;
+    camera1.camera_center = EiVector3d(-0.5, 1.1, 1.1);
     render_ppm_image(camera1);
     return 0;
 }
