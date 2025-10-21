@@ -185,11 +185,12 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     // Declare everything on the top because else I get very confused
     long long number_of_elements = nodes.rows(); // number of rows = number of triangles, will give us indices for some bits
     // Ray data
-    EiVector3d ray_direction = ray.direction;
+    EiVector3d ray_direction = ray.direction.normalized(); // TROUBLESHOOTING: forgot to normalize this...
     EiVector3d ray_origin = ray.origin; // shape (3,1)
     // Broadcasted to use in vectorised operations on matrices
     EiVectorD3d ray_directions = ray_direction.replicate(number_of_elements, 1);
     EiVectorD3d ray_origins = ray_origin.replicate(number_of_elements, 1);
+    // std::cout << "ray_direction: " << ray_directions << std::endl; // Broadcasting works as expected
     // Edges
     EiMatrixDd edge0, edge1, nEdge2; // shape (faces, 3) each
     //EiVectorD3d edge0, edge1, nEdge2; // shape (faces, 3) each
@@ -212,12 +213,14 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     edge1 = nodes.block(0, 6, nodes.rows(), 3)  - nodes.block(0, 3, nodes.rows(), 3);
     nEdge2 = nodes.block(0, 6, nodes.rows(), 3) - nodes.block(0, 0, nodes.rows(), 3);
     plane_normals = mat_cross_product(edge0, nEdge2); // not normalised!
-
+    //std::cout << edge0.row(0) << std::endl; // All calculated properly
+    //std::cout << edge1.row(0) << std::endl;
+    //std::cout <<nEdge2.row(0) << std::endl;
     // Step 1: Quantities for the Moller Trumbore method
-    p_vec = mat_cross_product(ray_directions, nEdge2);
-    p_vec = ray_directions.array() * nEdge2.array()
-    determinants = (edge0.array() * p_vec.array()).rowwise().sum(); // Row-wise dot product
-    std::cout << "determinants: " << determinants.transpose() << std::endl;
+    p_vec = mat_cross_product(ray_directions, nEdge2); // To my very own surprise, my function gives the correct output
+   // std::cout << p_vec.array() << std::endl;
+    determinants = (edge0.array() * p_vec.array()).rowwise().sum(); // Row-wise dot product // Correct
+    //std::cout << "determinants: " << determinants.transpose() << std::endl;
     // Step 2: Culling.
     //Determinant negative -> triangle is back-facing. If det is close to 0, ray misses the triangle.
     // If determinant is close to 0, ray and triangle are parallel and ray misses the triangle.
@@ -229,40 +232,35 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     }
 
     // Step 3: Test if ray is in front of the triangle
-    inverse_determinants = determinants.array().inverse(); // Element-wise inverse
-    std::cout << "inverse_determinants: " << inverse_determinants.transpose() << std::endl;
+    inverse_determinants = determinants.array().inverse(); // Element-wise inverse. Correct
+    //std::cout << "inverse_determinants: " << inverse_determinants.transpose() << std::endl;
     t_vec = ray_origins.array() - nodes.block(0, 0, nodes.rows(), 3).array(); // is ok, may return 0s depending on data passed, but tested with moving the camera center and works.
     //std::cout << "orig: " << ray_origin << std::endl;
     //std::cout << "block: " << nodes.block(0, 0, 1, 3) << std::endl;
-    //std::cout << "t_vec: " << t_vec.transpose() << std::endl;
-    EiVectorD3d temp = mat_cross_product(t_vec, p_vec);
+    // std::cout << "t_vec: " << t_vec << std::endl; // t_vec is correct
     barycentric_u = ((t_vec.array() * p_vec.array()).rowwise().sum()).array() * inverse_determinants.array(); // comes out the same as benchmark
     // Check barycentric_u
-    // Issue is here because it doesn't pass through the condition, even though it should as per benchmark
     //valid_mask = valid_mask && (barycentric_u.array() >= 0) && (barycentric_u.array() <= 1);
     valid_mask = valid_mask && (barycentric_u.array() >= 0) && (barycentric_u.array() <= 1);
     if (!valid_mask.any()) {
-       //std::cout << "Condition 2 triggered" << std::endl;
-        return negative_output; // No intersection - return infinity
+        //std::cout << "Condition 2 triggered" << std::endl;
+        //return negative_output; // No intersection - return infinity
     }
-    std::cout<<"Condition 2 not triggered" << std::endl;
 
     q_vec = mat_cross_product(t_vec, edge0); // comes out like in Python. Happy days
-    std::cout << q_vec << std::endl;
-    barycentric_v = (ray_directions.array() * q_vec.array()).rowwise().sum().matrix().array() * inverse_determinants.array();
-    std::cout << barycentric_u.array() << std::endl;
+    //std::cout << q_vec << std::endl;
+    barycentric_v = (ray_directions.array() * q_vec.array()).rowwise().sum().matrix().array() * inverse_determinants.array(); // Comes out correctly
     // Check barycentric_v and sum
 
-    //valid_mask = valid_mask && (barycentric_v.array() >= 0) && ((barycentric_u.array() + barycentric_v.array()) <= 1);
-    //valid_mask = valid_mask && ((barycentric_u.array() + barycentric_v.array()) <= 1); This gets satisfied sometimes. So it's barycentric_v >= 0 that is troublesome and never true.
+    valid_mask = valid_mask && (barycentric_v.array() >= 0) && ((barycentric_u.array() + barycentric_v.array()) <= 1);
     if (!valid_mask.any()) {
-        return negative_output; // No intersection - return infinity
+        //std::cout << "Condition 3 triggered" << std::endl; // Looks correct. But keep an eye on thos.
+        //return negative_output; // No intersection - return infinity
     }
-    //std::cout << "Condition 3 not triggered" <<std::endl;
-    /*
+
     // t values
-    t_values = (nEdge2.array() * q_vec.array()).rowwise().sum().matrix().array() * inverse_determinants.array();
-    valid_mask = (t_values.array() >= ray.t_min) && (t_values.array() <= ray.t_max);
+    t_values = (nEdge2.array() * q_vec.array()).rowwise().sum().matrix().array() * inverse_determinants.array(); // Same as Python
+    valid_mask = valid_mask && (t_values.array() >= ray.t_min) && (t_values.array() <= ray.t_max);
     // Iterate through all t_values and set them to infinity if they don't satisfy the conditions imposed by the mask
     for (int i = 0; i < t_values.rows(); ++i) {
         for (int j = 0; j < t_values.cols(); ++j) {
@@ -271,10 +269,12 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
             }
         }
     }
-    barycentric_w = 1.0 - barycentric_u.array() - barycentric_v.array();
+    //std::cout << "t_values: " << t_values << std::endl;
+    barycentric_w = 1.0 - barycentric_u.array() - barycentric_v.array(); // Comes out the same as Python
     barycentric_coordinates.col(0) = barycentric_u;
     barycentric_coordinates.col(1) = barycentric_v;
-    barycentric_coordinates.col(2) = barycentric_w; */
+    barycentric_coordinates.col(2) = barycentric_w;
+    //std::cout << "barycentric_coordinates: " << barycentric_coordinates << std::endl; // Also same as Python. Troubleshooting of this section should be complete.
     return IntersectionOutput{barycentric_coordinates, plane_normals, t_values};
 
 }
@@ -344,14 +344,14 @@ void render_ppm_image(const Camera& camera1) {
 
 int main() {
     Camera camera1;
-    Ray test_ray{EiVector3d(-0.5, 1.1, 1.1), EiVector3d(4.132331920978222, -2.603127666416139, 1.1937133836332001), 0.0};
-    EiMatrixDd node_coords_test(2,9);
-    node_coords_test.row(0) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0;
-    node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
+    //Ray test_ray{EiVector3d(-0.5, 1.1, 1.1), EiVector3d(4.132331920978222, -2.603127666416139, 1.1937133836332001), 0.0};
+    //EiMatrixDd node_coords_test(2,9);
+    //node_coords_test.row(0) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0;
+    //node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
+    //intersect_plane(test_ray, node_coords_test);
 
     //camera1.camera_center = EiVector3d(-0.5, 1.1, 1.1);
-    intersect_plane(test_ray, node_coords_test);
-    //render_ppm_image(camera1);
+    render_ppm_image(camera1);
     return 0;
 }
 
