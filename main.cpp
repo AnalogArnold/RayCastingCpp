@@ -177,10 +177,17 @@ struct IntersectionOutput {
     Eigen::Vector<double, Eigen::Dynamic> t_values; // size elements x 1
 };
 
+int counter_con1 = 0;
+int counter_con2 = 0;
+int counter_con3 = 0;
+int counter_pass = 0;
+int total_counter = 0;
 
 IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
+//IntersectionOutput intersect_plane(const Ray &ray, double (&nodes)[44][9]) {
     // Declare everything on the top because else I get very confused
-    long long number_of_elements = nodes.rows(); // number of rows = number of triangles, will give us indices for some bits
+    //long long number_of_elements = nodes.rows(); // number of rows = number of triangles, will give us indices for some bits
+    long long number_of_elements = 44;
     // Ray data
     EiVector3d ray_direction = ray.direction.normalized(); // TROUBLESHOOTING: forgot to normalize this...
     EiVector3d ray_origin = ray.origin; // shape (3,1)
@@ -189,7 +196,7 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     EiVectorD3d ray_origins = ray_origin.replicate(number_of_elements, 1);
     // std::cout << "ray_direction: " << ray_directions << std::endl; // Broadcasting works as expected
     // Edges
-    EiMatrixDd edge0, edge1, nEdge2; // shape (faces, 3) each
+    EiMatrixDd edge0 (number_of_elements,3), edge1 (number_of_elements,3), nEdge2 (number_of_elements,3), nodes0; // shape (faces, 3) each
     //EiVectorD3d edge0, edge1, nEdge2; // shape (faces, 3) each
     // Intersections and barycentric coordinates
     EiVectorD3d p_vec, t_vec, q_vec; // shape (faces, 3) each
@@ -205,7 +212,26 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
         Eigen::Vector<double, Eigen::Dynamic>::Constant(number_of_elements, 1, std::numeric_limits<double>::infinity())
     };
 
+    //double edge0_arr[44][3];
+    //double edge1_arr[44][3];
+    //double nEdge2_arr[44][3];
+    /*
+    for (int i = 0; i < 44; i++) {
+        for (int j = 0; j < 3; j++) {
+            edge0(i,j) = nodes[i][j+3] - nodes[i][j];
+            nodes0(i,j) = nodes[i][j];
+            // edge1(i,j) = nodes[i][j+6] - nodes[i][j+3]; // We don't really use it in calculations, so keep it here... because, just don't waste memory on this
+            nEdge2(i,j) = nodes[i][j+6] - nodes[i][j];
+            //edge0_arr[i][j] = nodes[i][j+3] - nodes[i][j];
+            //edge1_arr[i][j] = nodes[i][j+6] - nodes[i][j+3];
+            //nEdge2_arr[i][j] = nodes[i][j+6] - nodes[i][j];
+            //std::cout << edge0_arr[i][j]<< std::endl;
+        }
+    }
+*/
+
     // Calculations - edges and normals
+    total_counter ++;
     edge0 = nodes.block(0, 3, nodes.rows(), 3) - nodes.block(0, 0, nodes.rows(), 3);
     edge1 = nodes.block(0, 6, nodes.rows(), 3)  - nodes.block(0, 3, nodes.rows(), 3);
     nEdge2 = nodes.block(0, 6, nodes.rows(), 3) - nodes.block(0, 0, nodes.rows(), 3);
@@ -215,31 +241,39 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     //std::cout <<nEdge2.row(0) << std::endl;
     // Step 1: Quantities for the Moller Trumbore method
     p_vec = cross_rowwise(ray_directions, nEdge2); // To my very own surprise, my function gives the correct output
-   // std::cout << p_vec.array() << std::endl;
+    //std::cout << p_vec.array() << std::endl;
     determinants = (edge0.array() * p_vec.array()).rowwise().sum(); // Row-wise dot product // Correct
+    if (total_counter == 1) {
+        std::cout<<determinants<<std::endl; // this is already coming out wrong, even though it was fine previously. Curious.
+    }
     //std::cout << "determinants: " << determinants.transpose() << std::endl;
     // Step 2: Culling.
     //Determinant negative -> triangle is back-facing. If det is close to 0, ray misses the triangle.
     // If determinant is close to 0, ray and triangle are parallel and ray misses the triangle.
 
-    Eigen::Array<bool, Eigen::Dynamic, Eigen::Dynamic> valid_mask = determinants.array().abs() > 1e-6 && determinants.array() > 0;
+    Eigen::Array<bool, Eigen::Dynamic, Eigen::Dynamic> valid_mask = (determinants.array() > 1e-6) && (determinants.array() > 0);
+    //std::cout << "valid_mask: " << valid_mask.transpose() << std::endl;
     if (!valid_mask.any()) {
         //std::cout << "Condition 1 triggered" << std::endl;
+        counter_con1++;
         return negative_output; // No intersection - return infinity
     }
 
     // Step 3: Test if ray is in front of the triangle
     inverse_determinants = determinants.array().inverse(); // Element-wise inverse. Correct
     //std::cout << "inverse_determinants: " << inverse_determinants.transpose() << std::endl;
+    //t_vec = ray_origins.array() - nodes0.array();
     t_vec = ray_origins.array() - nodes.block(0, 0, nodes.rows(), 3).array(); // is ok, may return 0s depending on data passed, but tested with moving the camera center and works.
     //std::cout << "orig: " << ray_origin << std::endl;
     //std::cout << "block: " << nodes.block(0, 0, 1, 3) << std::endl;
-    // std::cout << "t_vec: " << t_vec << std::endl; // t_vec is correct
+    //std::cout << "t_vec: " << t_vec << std::endl; // t_vec is correct
     barycentric_u = ((t_vec.array() * p_vec.array()).rowwise().sum()).array() * inverse_determinants.array(); // comes out the same as benchmark
+    //std::cout << barycentric_u << std::endl;
     // Check barycentric_u
     //valid_mask = valid_mask && (barycentric_u.array() >= 0) && (barycentric_u.array() <= 1);
     valid_mask = valid_mask && (barycentric_u.array() >= 0) && (barycentric_u.array() <= 1);
     if (!valid_mask.any()) {
+        counter_con2++;
         //std::cout << "Condition 2 triggered" << std::endl;
         return negative_output; // No intersection - return infinity
     }
@@ -248,25 +282,22 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     //std::cout << q_vec << std::endl;
     barycentric_v = (ray_directions.array() * q_vec.array()).rowwise().sum().matrix().array() * inverse_determinants.array(); // Comes out correctly
     // Check barycentric_v and sum
-
+    //std::cout<<barycentric_v<<std::endl;
     valid_mask = valid_mask && (barycentric_v.array() >= 0) && ((barycentric_u.array() + barycentric_v.array()) <= 1);
-    if (!valid_mask.any()) {
-        //std::cout << "Condition 3 triggered" << std::endl; // Looks correct. But keep an eye on thos.
-        return negative_output; // No intersection - return infinity
-    }
-
     // t values
     t_values = (nEdge2.array() * q_vec.array()).rowwise().sum().matrix().array() * inverse_determinants.array(); // Same as Python
+    //std::cout << "t_values: " << t_values << std::endl;
     valid_mask = valid_mask && (t_values.array() >= ray.t_min) && (t_values.array() <= ray.t_max);
     // Iterate through all t_values and set them to infinity if they don't satisfy the conditions imposed by the mask
     for (int i = 0; i < t_values.rows(); ++i) {
         for (int j = 0; j < t_values.cols(); ++j) {
             if (!valid_mask(i, j)) {
                 t_values(i, j) = std::numeric_limits<double>::infinity();
+                counter_con3++;
             }
         }
     }
-    //std::cout << "t_values: " << t_values << std::endl;
+    counter_pass++;
     barycentric_w = 1.0 - barycentric_u.array() - barycentric_v.array(); // Comes out the same as Python
     barycentric_coordinates.col(0) = barycentric_u;
     barycentric_coordinates.col(1) = barycentric_v;
@@ -281,15 +312,63 @@ EiVector3d return_ray_color(const Ray &ray) {
 // Returns the color for a given ray. If the ray intersects an object, return colour. Otherwise, return blue sky gradient.
     double node_coords_arr[2][9] = {1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0};
 
-    EiMatrixDd node_coords_test(2,9);
+   // EiMatrixDd node_coords_test(2,9);
     EiVectorD3d color_test(3,3);
     color_test.row(0) << 1.0, 0.0, 0.0;
     color_test.row(1) << 0.0, 1.0, 1.0;
     color_test.row(2) << 1.0, 0.0, 1.0;
-    node_coords_test.row(0) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0;
-    node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
-
-
+    //node_coords_test.row(0) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0;
+    //node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
+     double node_coords_test1[44][9] = {
+    0.0,0.0,0.0,0.0,0.49999999999999983,0.0,0.49999999999999994,0.0,0.0,
+    0.0,0.0,0.0,0.0,0.49999999999999983,0.5,0.0,0.49999999999999983,0.0,
+    0.0,0.0,0.0,0.49999999999999994,0.0,0.0,0.0,0.0,0.5,
+    0.0,0.0,0.0,0.0,0.0,0.5,0.0,0.49999999999999983,0.5,
+    0.49999999999999994,0.0,0.0,0.49999999999999994,0.0,0.5,0.0,0.0,0.5,
+    0.49999999999999994,0.0,0.0,0.0,0.49999999999999983,0.0,0.5,0.49999999999999983,0.0,
+    0.49999999999999994,0.0,0.0,0.5,0.49999999999999983,0.0,1.0,0.0,0.0,
+    0.49999999999999994,0.0,0.0,1.0,0.0,0.0,0.49999999999999994,0.0,0.5,
+    0.0,0.49999999999999983,0.0,0.0,1.0,0.0,0.5,0.49999999999999983,0.0,
+    0.0,0.49999999999999983,0.0,0.0,1.0,0.5,0.0,1.0,0.0,
+    0.0,0.49999999999999983,0.0,0.0,0.49999999999999983,0.5,0.0,1.0,0.5,
+    0.0,0.49999999999999983,0.5,0.0,0.0,0.5,0.49999999999999994,0.0,0.5,
+    0.0,0.49999999999999983,0.5,0.49999999999999994,0.0,0.5,0.5,0.49999999999999983,0.5,
+    0.0,0.49999999999999983,0.5,0.5,0.49999999999999983,0.5,0.0,1.0,0.5,
+    0.49999999999999994,0.0,0.5,1.0,0.0,0.0,1.0,0.0,0.5,
+    0.49999999999999994,0.0,0.5,1.0,0.0,0.5,0.5,0.49999999999999983,0.5,
+    0.5,0.49999999999999983,0.0,0.0,1.0,0.0,0.5,1.0,0.0,
+    0.5,0.49999999999999983,0.0,1.0,0.49999999999999994,0.0,1.0,0.0,0.0,
+    0.5,0.49999999999999983,0.0,0.5,1.0,0.0,1.0,0.49999999999999994,0.0,
+    0.5,0.49999999999999983,0.5,0.5,1.0,0.5,0.0,1.0,0.5,
+    0.5,0.49999999999999983,0.5,1.0,0.0,0.5,1.0,0.49999999999999994,0.5,
+    0.5,0.49999999999999983,0.5,1.0,0.49999999999999994,0.5,0.5,1.0,0.5,
+    0.0,1.0,0.0,0.0,1.5,0.0,0.5,1.0,0.0,
+    0.0,1.0,0.0,0.0,1.5,0.5,0.0,1.5,0.0,
+    0.0,1.0,0.0,0.0,1.0,0.5,0.0,1.5,0.5,
+    0.0,1.0,0.5,0.5,1.0,0.5,0.0,1.5,0.5,
+    0.5,1.0,0.0,0.0,1.5,0.0,0.5000000000000001,1.5,0.0,
+    0.5,1.0,0.0,1.0,1.0,0.0,1.0,0.49999999999999994,0.0,
+    0.5,1.0,0.0,0.5000000000000001,1.5,0.0,1.0,1.0,0.0,
+    0.5,1.0,0.5,0.5000000000000001,1.5,0.5,0.0,1.5,0.5,
+    0.5,1.0,0.5,1.0,0.49999999999999994,0.5,1.0,1.0,0.5,
+    0.5,1.0,0.5,1.0,1.0,0.5,0.5000000000000001,1.5,0.5,
+    0.0,1.5,0.0,0.5000000000000001,1.5,0.5,0.5000000000000001,1.5,0.0,
+    0.0,1.5,0.0,0.0,1.5,0.5,0.5000000000000001,1.5,0.5,
+    0.5000000000000001,1.5,0.0,1.0,1.5,0.0,1.0,1.0,0.0,
+    0.5000000000000001,1.5,0.0,1.0,1.5,0.5,1.0,1.5,0.0,
+    0.5000000000000001,1.5,0.0,0.5000000000000001,1.5,0.5,1.0,1.5,0.5,
+    0.5000000000000001,1.5,0.5,1.0,1.0,0.5,1.0,1.5,0.5,
+    1.0,0.0,0.0,1.0,0.49999999999999994,0.0,1.0,0.49999999999999994,0.5,
+    1.0,0.0,0.0,1.0,0.49999999999999994,0.5,1.0,0.0,0.5,
+    1.0,0.49999999999999994,0.0,1.0,1.0,0.0,1.0,1.0,0.5,
+    1.0,0.49999999999999994,0.0,1.0,1.0,0.5,1.0,0.49999999999999994,0.5,
+    1.0,1.0,0.0,1.0,1.5,0.0,1.0,1.5,0.5,
+    1.0,1.0,0.0,1.0,1.5,0.5,1.0,1.0,0.5};
+    EiMatrixDd node_coords_test(44,9);
+    for (int i=0; i < 44; i++) {
+        for (int j=0; j < 9; j++) {
+            node_coords_test(i,j) = node_coords_arr[i][j];
+        }}
     HitRecord intersection_record; // Create HitRecord struct
     IntersectionOutput intersection = intersect_plane(ray, node_coords_test);
     Eigen::Index minRowIndex, minColIndex;
@@ -304,6 +383,7 @@ EiVector3d return_ray_color(const Ray &ray) {
     }
     if (intersection_record.t != std::numeric_limits<double>::infinity()) { // Instead of keeping a bool hit_anything, check if t value has changed from the default
         set_face_normal(ray, intersection_record.normal_surface);
+        std::cout<<"hit sth"<<std::endl;
         return intersection_record.barycentric_coordinates(0) * color_test.row(0) + intersection_record.barycentric_coordinates(1) * color_test.row(2) + intersection_record.barycentric_coordinates(2) * color_test.row(2);
         //return color
     }
@@ -341,12 +421,12 @@ void render_ppm_image(const Camera& camera1) {
     std::cout << "\r Done. \n";
 }
 
-void edgeArray() {
-    double node_coords_arr[2][9] = {0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0};
-    double edge0_arr[2][3];
-    double edge1_arr[2][3];
-    double nEdge2_arr[2][3];
-    for (int i = 0; i < 2; i++) {
+void edgeArray(double (&node_coords_arr)[44][9]) {
+    //double node_coords_arr[2][9] = {0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0};
+    double edge0_arr[44][3];
+    double edge1_arr[44][3];
+    double nEdge2_arr[44][3];
+    for (int i = 0; i < 44; i++) {
         for (int j = 0; j < 3; j++) {
             edge0_arr[i][j] = node_coords_arr[i][j+3] - node_coords_arr[i][j];
             edge1_arr[i][j] = node_coords_arr[i][j+6] - node_coords_arr[i][j+3];
@@ -356,11 +436,11 @@ void edgeArray() {
     }
 }
 
-void edgeEigen() {
+void edgeEigen(EiMatrixDd &node_coords_test) {
     // Eigen edge test
-    EiMatrixDd node_coords_test(2,9);
-    node_coords_test.row(0) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0;
-    node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
+    //EiMatrixDd node_coords_test(2,9);
+   //node_coords_test.row(0) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0;
+    //node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
     EiMatrixDd edge0 = node_coords_test.block(0, 3, node_coords_test.rows(), 3) - node_coords_test.block(0, 0, node_coords_test.rows(), 3);
     EiMatrixDd edge1 = node_coords_test.block(0, 6, node_coords_test.rows(), 3)  - node_coords_test.block(0, 3, node_coords_test.rows(), 3);
     EiMatrixDd nEdge2 = node_coords_test.block(0, 6, node_coords_test.rows(), 3) - node_coords_test.block(0, 0, node_coords_test.rows(), 3);
@@ -368,7 +448,63 @@ void edgeEigen() {
 
 
 int main() {
-    Camera test_camera{EiVector3d(0, 1, 1), EiVector3d(0, 0, -1), 90};
+    //Camera test_camera{EiVector3d(0, 1, 1), EiVector3d(0, 0, -1), 90};
+    Camera test_camera{EiVector3d(-0.5, 1.1, 1.1), EiVector3d(0, 0, -1), 90};
+    // Mesh from simdata. Copied by force for now.
+    unsigned long long number_of_elements = 44;
+    unsigned long long number_of_coords = 9;
+
+    double node_coords_arr[44][9] = {
+    0.0,0.0,0.0,0.0,0.49999999999999983,0.0,0.49999999999999994,0.0,0.0,
+    0.0,0.0,0.0,0.0,0.49999999999999983,0.5,0.0,0.49999999999999983,0.0,
+    0.0,0.0,0.0,0.49999999999999994,0.0,0.0,0.0,0.0,0.5,
+    0.0,0.0,0.0,0.0,0.0,0.5,0.0,0.49999999999999983,0.5,
+    0.49999999999999994,0.0,0.0,0.49999999999999994,0.0,0.5,0.0,0.0,0.5,
+    0.49999999999999994,0.0,0.0,0.0,0.49999999999999983,0.0,0.5,0.49999999999999983,0.0,
+    0.49999999999999994,0.0,0.0,0.5,0.49999999999999983,0.0,1.0,0.0,0.0,
+    0.49999999999999994,0.0,0.0,1.0,0.0,0.0,0.49999999999999994,0.0,0.5,
+    0.0,0.49999999999999983,0.0,0.0,1.0,0.0,0.5,0.49999999999999983,0.0,
+    0.0,0.49999999999999983,0.0,0.0,1.0,0.5,0.0,1.0,0.0,
+    0.0,0.49999999999999983,0.0,0.0,0.49999999999999983,0.5,0.0,1.0,0.5,
+    0.0,0.49999999999999983,0.5,0.0,0.0,0.5,0.49999999999999994,0.0,0.5,
+    0.0,0.49999999999999983,0.5,0.49999999999999994,0.0,0.5,0.5,0.49999999999999983,0.5,
+    0.0,0.49999999999999983,0.5,0.5,0.49999999999999983,0.5,0.0,1.0,0.5,
+    0.49999999999999994,0.0,0.5,1.0,0.0,0.0,1.0,0.0,0.5,
+    0.49999999999999994,0.0,0.5,1.0,0.0,0.5,0.5,0.49999999999999983,0.5,
+    0.5,0.49999999999999983,0.0,0.0,1.0,0.0,0.5,1.0,0.0,
+    0.5,0.49999999999999983,0.0,1.0,0.49999999999999994,0.0,1.0,0.0,0.0,
+    0.5,0.49999999999999983,0.0,0.5,1.0,0.0,1.0,0.49999999999999994,0.0,
+    0.5,0.49999999999999983,0.5,0.5,1.0,0.5,0.0,1.0,0.5,
+    0.5,0.49999999999999983,0.5,1.0,0.0,0.5,1.0,0.49999999999999994,0.5,
+    0.5,0.49999999999999983,0.5,1.0,0.49999999999999994,0.5,0.5,1.0,0.5,
+    0.0,1.0,0.0,0.0,1.5,0.0,0.5,1.0,0.0,
+    0.0,1.0,0.0,0.0,1.5,0.5,0.0,1.5,0.0,
+    0.0,1.0,0.0,0.0,1.0,0.5,0.0,1.5,0.5,
+    0.0,1.0,0.5,0.5,1.0,0.5,0.0,1.5,0.5,
+    0.5,1.0,0.0,0.0,1.5,0.0,0.5000000000000001,1.5,0.0,
+    0.5,1.0,0.0,1.0,1.0,0.0,1.0,0.49999999999999994,0.0,
+    0.5,1.0,0.0,0.5000000000000001,1.5,0.0,1.0,1.0,0.0,
+    0.5,1.0,0.5,0.5000000000000001,1.5,0.5,0.0,1.5,0.5,
+    0.5,1.0,0.5,1.0,0.49999999999999994,0.5,1.0,1.0,0.5,
+    0.5,1.0,0.5,1.0,1.0,0.5,0.5000000000000001,1.5,0.5,
+    0.0,1.5,0.0,0.5000000000000001,1.5,0.5,0.5000000000000001,1.5,0.0,
+    0.0,1.5,0.0,0.0,1.5,0.5,0.5000000000000001,1.5,0.5,
+    0.5000000000000001,1.5,0.0,1.0,1.5,0.0,1.0,1.0,0.0,
+    0.5000000000000001,1.5,0.0,1.0,1.5,0.5,1.0,1.5,0.0,
+    0.5000000000000001,1.5,0.0,0.5000000000000001,1.5,0.5,1.0,1.5,0.5,
+    0.5000000000000001,1.5,0.5,1.0,1.0,0.5,1.0,1.5,0.5,
+    1.0,0.0,0.0,1.0,0.49999999999999994,0.0,1.0,0.49999999999999994,0.5,
+    1.0,0.0,0.0,1.0,0.49999999999999994,0.5,1.0,0.0,0.5,
+    1.0,0.49999999999999994,0.0,1.0,1.0,0.0,1.0,1.0,0.5,
+    1.0,0.49999999999999994,0.0,1.0,1.0,0.5,1.0,0.49999999999999994,0.5,
+    1.0,1.0,0.0,1.0,1.5,0.0,1.0,1.5,0.5,
+    1.0,1.0,0.0,1.0,1.5,0.5,1.0,1.0,0.5};
+    EiMatrixDd node_coords_test(44,9);
+    for (int i=0; i < 44; i++) {
+        for (int j=0; j < 9; j++) {
+            node_coords_test(i,j) = node_coords_arr[i][j];
+        }}
+
     //Camera camera1;
     // Sample data for testing
     //Ray test_ray{EiVector3d(-0.5, 1.1, 1.1), EiVector3d(4.132331920978222, -2.603127666416139, 1.1937133836332001), 0.0};
@@ -377,25 +513,26 @@ int main() {
     //node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
     //intersect_plane(test_ray, node_coords_test);
 
-    //
-    //render_ppm_image(test_camera);
+    render_ppm_image(test_camera);
+    std::cout<<"Counter_con1: " << counter_con1 << "counter_con2: " << counter_con2 << "counter_con3: " << counter_con3 << "counter_pass: " << counter_pass << "total_counter:" << total_counter <<std::endl;
 
-
-    //std::cout << edge0_arr << std::endl;
     // Code for timing
-
-    //render_ppm_image(test_camera);
-    std::chrono::high_resolution_clock::time_point begin2 = std::chrono::high_resolution_clock::now();
-    edgeEigen();
-    std::chrono::high_resolution_clock::time_point end2 = std::chrono::high_resolution_clock::now();
-    std::cout << "Eigen runtime: " << std::chrono::duration_cast<std::chrono::nanoseconds> (end2 - begin2) << std::endl;
-
+    /*
     std::chrono::high_resolution_clock::time_point begin1 = std::chrono::high_resolution_clock::now();
-    edgeArray();
+    edgeArray(node_coords_arr);
     std::chrono::high_resolution_clock::time_point end1 = std::chrono::high_resolution_clock::now();
     std::cout << "Array runtime: " << std::chrono::duration_cast<std::chrono::nanoseconds> (end1 - begin1) << std::endl;
 
+    std::chrono::high_resolution_clock::time_point begin2 = std::chrono::high_resolution_clock::now();
+    edgeEigen(node_coords_test);
+    std::chrono::high_resolution_clock::time_point end2 = std::chrono::high_resolution_clock::now();
+    std::cout << "Eigen runtime: " << std::chrono::duration_cast<std::chrono::nanoseconds> (end2 - begin2) << std::endl;
+    */
+
+
     return 0;
 }
+
+
 
 
