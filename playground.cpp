@@ -1,4 +1,11 @@
-#include <cmath>
+/*
+ *
+ * Very ugly code, but functional. Kept for my reference
+ *
+ *
+ */
+
+/*#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <fstream>
@@ -23,10 +30,14 @@ using EiMatrixDd = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::
 using EiVectorD3d = Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>; // Matrix shaped (D,3); mostly for coordinates to avoid having to loop constantly in the intersection code to get cross products etc. Think coordinates stacked together
 
 //////////////////////////////////// INPUT
-double aspect_ratio = 16.0/9.0;
 unsigned short image_width = 400; // px
+double aspect_ratio = 16.0/9.0;
 unsigned short image_height = static_cast<unsigned short>(image_width / aspect_ratio); // px
 unsigned short number_of_samples; // For anti-aliasing. Really don't expect we'll need more than a short
+//double camera_center[] = {-0.5, 1.1, 1.1};
+//double camera_target[] = {0, 0, -1};
+//double angle_vertical_view = 90.0; // degrees
+
 
 //////////////////////////////////// CAMERA
 class Camera {
@@ -125,7 +136,7 @@ inline void set_face_normal(const Ray &ray, EiVector3d &normal_surface) {
 }
 
 //////////////////////////////////// CROSS-PRODUCT
-EiVectorD3d cross_rowwise(const EiVectorD3d &mat1, const EiVectorD3d &mat2) {
+EiVectorD3d mat_cross_product(const EiVectorD3d &mat1, const EiVectorD3d &mat2) {
     // Row-wise cross product for 2 matrices (i.e., treating each row as a vector).
     // Also works for multiplying a matrix with a row vector, so the input order determines the multiplication order. Happy days.
     // Written because this otherwise can't be a one-liner like in NumPy - Eigen's cross product works only for vector types.
@@ -209,12 +220,12 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     edge0 = nodes.block(0, 3, nodes.rows(), 3) - nodes.block(0, 0, nodes.rows(), 3);
     edge1 = nodes.block(0, 6, nodes.rows(), 3)  - nodes.block(0, 3, nodes.rows(), 3);
     nEdge2 = nodes.block(0, 6, nodes.rows(), 3) - nodes.block(0, 0, nodes.rows(), 3);
-    plane_normals = cross_rowwise(edge0, nEdge2); // not normalised!
+    plane_normals = mat_cross_product(edge0, nEdge2); // not normalised!
     //std::cout << edge0.row(0) << std::endl; // All calculated properly
     //std::cout << edge1.row(0) << std::endl;
     //std::cout <<nEdge2.row(0) << std::endl;
     // Step 1: Quantities for the Moller Trumbore method
-    p_vec = cross_rowwise(ray_directions, nEdge2); // To my very own surprise, my function gives the correct output
+    p_vec = mat_cross_product(ray_directions, nEdge2); // To my very own surprise, my function gives the correct output
    // std::cout << p_vec.array() << std::endl;
     determinants = (edge0.array() * p_vec.array()).rowwise().sum(); // Row-wise dot product // Correct
     //std::cout << "determinants: " << determinants.transpose() << std::endl;
@@ -241,10 +252,10 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     valid_mask = valid_mask && (barycentric_u.array() >= 0) && (barycentric_u.array() <= 1);
     if (!valid_mask.any()) {
         //std::cout << "Condition 2 triggered" << std::endl;
-        return negative_output; // No intersection - return infinity
+        //return negative_output; // No intersection - return infinity
     }
 
-    q_vec = cross_rowwise(t_vec, edge0); // comes out like in Python. Happy days
+    q_vec = mat_cross_product(t_vec, edge0); // comes out like in Python. Happy days
     //std::cout << q_vec << std::endl;
     barycentric_v = (ray_directions.array() * q_vec.array()).rowwise().sum().matrix().array() * inverse_determinants.array(); // Comes out correctly
     // Check barycentric_v and sum
@@ -252,7 +263,7 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     valid_mask = valid_mask && (barycentric_v.array() >= 0) && ((barycentric_u.array() + barycentric_v.array()) <= 1);
     if (!valid_mask.any()) {
         //std::cout << "Condition 3 triggered" << std::endl; // Looks correct. But keep an eye on thos.
-        return negative_output; // No intersection - return infinity
+        //return negative_output; // No intersection - return infinity
     }
 
     // t values
@@ -279,8 +290,6 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
 //////////////////////////////////// COLOR RAY
 EiVector3d return_ray_color(const Ray &ray) {
 // Returns the color for a given ray. If the ray intersects an object, return colour. Otherwise, return blue sky gradient.
-    double node_coords_arr[2][9] = {1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0};
-
     EiMatrixDd node_coords_test(2,9);
     EiVectorD3d color_test(3,3);
     color_test.row(0) << 1.0, 0.0, 0.0;
@@ -288,7 +297,6 @@ EiVector3d return_ray_color(const Ray &ray) {
     color_test.row(2) << 1.0, 0.0, 1.0;
     node_coords_test.row(0) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0;
     node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
-
 
     HitRecord intersection_record; // Create HitRecord struct
     IntersectionOutput intersection = intersect_plane(ray, node_coords_test);
@@ -341,61 +349,33 @@ void render_ppm_image(const Camera& camera1) {
     std::cout << "\r Done. \n";
 }
 
-void edgeArray() {
-    double node_coords_arr[2][9] = {0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0};
-    double edge0_arr[2][3];
-    double edge1_arr[2][3];
-    double nEdge2_arr[2][3];
-    for (int i = 0; i < 2; i++) {
-        for (int j = 0; j < 3; j++) {
-            edge0_arr[i][j] = node_coords_arr[i][j+3] - node_coords_arr[i][j];
-            edge1_arr[i][j] = node_coords_arr[i][j+6] - node_coords_arr[i][j+3];
-            nEdge2_arr[i][j] = node_coords_arr[i][j+6] - node_coords_arr[i][j];
-            //std::cout << edge0_arr[i][j]<< std::endl;
-        }
-    }
-}
-
-void edgeEigen() {
-    // Eigen edge test
-    EiMatrixDd node_coords_test(2,9);
-    node_coords_test.row(0) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0;
-    node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
-    EiMatrixDd edge0 = node_coords_test.block(0, 3, node_coords_test.rows(), 3) - node_coords_test.block(0, 0, node_coords_test.rows(), 3);
-    EiMatrixDd edge1 = node_coords_test.block(0, 6, node_coords_test.rows(), 3)  - node_coords_test.block(0, 3, node_coords_test.rows(), 3);
-    EiMatrixDd nEdge2 = node_coords_test.block(0, 6, node_coords_test.rows(), 3) - node_coords_test.block(0, 0, node_coords_test.rows(), 3);
-}
-
-
 int main() {
     Camera test_camera{EiVector3d(0, 1, 1), EiVector3d(0, 0, -1), 90};
+    //Camera test_camera;
+    //std::cout << test_camera.matrix_pixel_spacing << std::endl;
+    //std::cout << "angle: " << test_camera.angle_vertical_view << std::endl;
+    //::cout << "cam_center: " << test_camera.camera_center << std::endl;
+    //std::cout << "mat_cam_world: " << test_camera.matrix_camera_to_world << std::endl;
+    //std::cout << "mat_world_cam: " << test_camera.matrix_world_to_camera << std::endl;
+    //std::cout << "pix00 center: " << test_camera.pixel_00_center << std::endl;
+    //std::cout << "viewport left: " << test_camera.viewport_upper_left << std::endl;
     //Camera camera1;
-    // Sample data for testing
     //Ray test_ray{EiVector3d(-0.5, 1.1, 1.1), EiVector3d(4.132331920978222, -2.603127666416139, 1.1937133836332001), 0.0};
     //EiMatrixDd node_coords_test(2,9);
     //node_coords_test.row(0) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0;
     //node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
     //intersect_plane(test_ray, node_coords_test);
 
-    //
-    //render_ppm_image(test_camera);
-
-
-    //std::cout << edge0_arr << std::endl;
-    // Code for timing
-
-    //render_ppm_image(test_camera);
-    std::chrono::high_resolution_clock::time_point begin2 = std::chrono::high_resolution_clock::now();
-    edgeEigen();
-    std::chrono::high_resolution_clock::time_point end2 = std::chrono::high_resolution_clock::now();
-    std::cout << "Eigen runtime: " << std::chrono::duration_cast<std::chrono::nanoseconds> (end2 - begin2) << std::endl;
-
-    std::chrono::high_resolution_clock::time_point begin1 = std::chrono::high_resolution_clock::now();
-    edgeArray();
-    std::chrono::high_resolution_clock::time_point end1 = std::chrono::high_resolution_clock::now();
-    std::cout << "Array runtime: " << std::chrono::duration_cast<std::chrono::nanoseconds> (end1 - begin1) << std::endl;
-
+    //camera1.camera_center = EiVector3d(-0.5, 1.1, 1.1);
+    render_ppm_image(test_camera);
+    // Lines for timing
+    /*
+    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+    render_ppm_image(test_camera);
+    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+    std::cout << "Renderer runtime: " << std::chrono::duration_cast<std::chrono::milliseconds> (end - begin) << std::endl;
+    */
     return 0;
 }
-
+/*
 
