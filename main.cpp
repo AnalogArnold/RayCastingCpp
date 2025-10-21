@@ -68,6 +68,7 @@ private:
         matrix_camera_to_world.block<1,3>(1,0) = basis_vector_up;
         matrix_camera_to_world.block<1,3>(2,0) = basis_vector_forward;
         matrix_camera_to_world.block<1,3>(3,0) = camera_center;
+        matrix_camera_to_world(3,3) = 1.0;
         // Take the inverse to get the world_to_camera matrix for free
         matrix_world_to_camera = matrix_camera_to_world.inverse();
         // Create the viewport
@@ -79,7 +80,7 @@ private:
         // Returns pixel spacing vectors and the 0,0-positions for the pixel and the upper left corner of the viewport.
         double h_temp = std::tan(angle_vertical_view / 2.0);
         double viewport_height = 2 * h_temp * focal_length; // world units (arbitrary)
-        double viewport_width = viewport_height * (image_width / image_height); // world units (arbitrary)
+        double viewport_width = viewport_height * (static_cast<double>(image_width) / image_height); // world units (arbitrary)
         // Viewport basis vectors
         EiVector3d vector_viewport_x_axis = viewport_width * basis_vector_right; //Vu
         EiVector3d vector_viewport_y_axis = (-viewport_height) * basis_vector_up; //Vw
@@ -293,7 +294,7 @@ EiVector3d return_ray_color(const Ray &ray) {
     HitRecord intersection_record; // Create HitRecord struct
     IntersectionOutput intersection = intersect_plane(ray, node_coords_test);
     Eigen::Index minRowIndex, minColIndex;
-/*
+
     intersection.t_values.minCoeff(&minRowIndex, &minColIndex); // Find indices of the smallest t_value
     double closest_t = intersection.t_values(minRowIndex, minColIndex);
     if (closest_t < intersection_record.t) {
@@ -307,7 +308,6 @@ EiVector3d return_ray_color(const Ray &ray) {
         return intersection_record.barycentric_coordinates(0) * color_test.row(0) + intersection_record.barycentric_coordinates(1) * color_test.row(2) + intersection_record.barycentric_coordinates(2) * color_test.row(2);
         //return color
     }
-    */
     // Blue sky gradient
     double a = 0.5 * (ray.direction.normalized()(1) + 1.0);
     EiVector3d color = (1.0 - a) * (EiVector3d() << 1.0, 1.0, 1.0).finished() + a * (EiVector3d() << 0.5, 0.7, 1.0).finished();
@@ -343,7 +343,16 @@ void render_ppm_image(const Camera& camera1) {
 }
 
 int main() {
-    Camera camera1;
+    Camera test_camera{EiVector3d(0, 1, 1), EiVector3d(0, 0, -1), 90};
+    //Camera test_camera;
+    //std::cout << test_camera.matrix_pixel_spacing << std::endl;
+    //std::cout << "angle: " << test_camera.angle_vertical_view << std::endl;
+    //::cout << "cam_center: " << test_camera.camera_center << std::endl;
+    //std::cout << "mat_cam_world: " << test_camera.matrix_camera_to_world << std::endl;
+    //std::cout << "mat_world_cam: " << test_camera.matrix_world_to_camera << std::endl;
+    //std::cout << "pix00 center: " << test_camera.pixel_00_center << std::endl;
+    //std::cout << "viewport left: " << test_camera.viewport_upper_left << std::endl;
+    //Camera camera1;
     //Ray test_ray{EiVector3d(-0.5, 1.1, 1.1), EiVector3d(4.132331920978222, -2.603127666416139, 1.1937133836332001), 0.0};
     //EiMatrixDd node_coords_test(2,9);
     //node_coords_test.row(0) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0;
@@ -351,7 +360,7 @@ int main() {
     //intersect_plane(test_ray, node_coords_test);
 
     //camera1.camera_center = EiVector3d(-0.5, 1.1, 1.1);
-    render_ppm_image(camera1);
+    render_ppm_image(test_camera);
     return 0;
 }
 
