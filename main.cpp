@@ -183,7 +183,8 @@ int counter_con3 = 0;
 int counter_pass = 0;
 int total_counter = 0;
 
-IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
+// WIP: see where I actually need vectors/matrices, and where I always convert them into array objects
+IntersectionOutput intersect_plane(const Ray &ray, const double (&node_coords_arr)[44][9]) {
 //IntersectionOutput intersect_plane(const Ray &ray, double (&nodes)[44][9]) {
     // Declare everything on the top because else I get very confused
     //long long number_of_elements = nodes.rows(); // number of rows = number of triangles, will give us indices for some bits
@@ -196,7 +197,7 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     EiVectorD3d ray_origins = ray_origin.replicate(number_of_elements, 1);
     // std::cout << "ray_direction: " << ray_directions << std::endl; // Broadcasting works as expected
     // Edges
-    EiMatrixDd edge0 (number_of_elements,3), edge1 (number_of_elements,3), nEdge2 (number_of_elements,3), nodes0; // shape (faces, 3) each
+    EiMatrixDd edge0 (number_of_elements,3), tempFort (number_of_elements,3), nEdge2 (number_of_elements,3), nodes0; // shape (faces, 3) each
     //EiVectorD3d edge0, edge1, nEdge2; // shape (faces, 3) each
     // Intersections and barycentric coordinates
     EiVectorD3d p_vec, t_vec, q_vec; // shape (faces, 3) each
@@ -231,10 +232,16 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
 */
 
     // Calculations - edges and normals
-    total_counter ++;
-    edge0 = nodes.block(0, 3, nodes.rows(), 3) - nodes.block(0, 0, nodes.rows(), 3);
-    edge1 = nodes.block(0, 6, nodes.rows(), 3)  - nodes.block(0, 3, nodes.rows(), 3);
-    nEdge2 = nodes.block(0, 6, nodes.rows(), 3) - nodes.block(0, 0, nodes.rows(), 3);
+    for (int i=0; i < 44; i++) {
+        for (int j=0; j < 3; j++) {
+            //std::cout<<node_coords_arr[i][j] << " ";
+            edge0(i,j) = node_coords_arr[i][j+3] - node_coords_arr[i][j];
+            tempFort(i,j) = node_coords_arr[i][j];
+            // Skip edge1 because it never gets used in the calculations anyway
+            nEdge2(i,j) = node_coords_arr[i][j+6] - node_coords_arr[i][j];
+        }
+    }
+
     plane_normals = cross_rowwise(edge0, nEdge2); // not normalised!
     //std::cout << edge0.row(0) << std::endl; // All calculated properly
     //std::cout << edge1.row(0) << std::endl;
@@ -243,9 +250,6 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     p_vec = cross_rowwise(ray_directions, nEdge2); // To my very own surprise, my function gives the correct output
     //std::cout << p_vec.array() << std::endl;
     determinants = (edge0.array() * p_vec.array()).rowwise().sum(); // Row-wise dot product // Correct
-    if (total_counter == 1) {
-        std::cout<<edge0<<std::endl; // this is already coming out wrong, even though it was fine previously. Curious.
-    }
     //std::cout << "determinants: " << determinants.transpose() << std::endl;
     // Step 2: Culling.
     //Determinant negative -> triangle is back-facing. If det is close to 0, ray misses the triangle.
@@ -255,7 +259,7 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     //std::cout << "valid_mask: " << valid_mask.transpose() << std::endl;
     if (!valid_mask.any()) {
         //std::cout << "Condition 1 triggered" << std::endl;
-        counter_con1++;
+        //counter_con1++;
         return negative_output; // No intersection - return infinity
     }
 
@@ -263,7 +267,7 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     inverse_determinants = determinants.array().inverse(); // Element-wise inverse. Correct
     //std::cout << "inverse_determinants: " << inverse_determinants.transpose() << std::endl;
     //t_vec = ray_origins.array() - nodes0.array();
-    t_vec = ray_origins.array() - nodes.block(0, 0, nodes.rows(), 3).array(); // is ok, may return 0s depending on data passed, but tested with moving the camera center and works.
+    t_vec = ray_origins.array() - tempFort.array(); // is ok, may return 0s depending on data passed, but tested with moving the camera center and works.
     //std::cout << "orig: " << ray_origin << std::endl;
     //std::cout << "block: " << nodes.block(0, 0, 1, 3) << std::endl;
     //std::cout << "t_vec: " << t_vec << std::endl; // t_vec is correct
@@ -273,7 +277,7 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
     //valid_mask = valid_mask && (barycentric_u.array() >= 0) && (barycentric_u.array() <= 1);
     valid_mask = valid_mask && (barycentric_u.array() >= 0) && (barycentric_u.array() <= 1);
     if (!valid_mask.any()) {
-        counter_con2++;
+        //counter_con2++;
         //std::cout << "Condition 2 triggered" << std::endl;
         return negative_output; // No intersection - return infinity
     }
@@ -293,11 +297,11 @@ IntersectionOutput intersect_plane(const Ray &ray, EiMatrixDd nodes) {
         for (int j = 0; j < t_values.cols(); ++j) {
             if (!valid_mask(i, j)) {
                 t_values(i, j) = std::numeric_limits<double>::infinity();
-                counter_con3++;
+                //counter_con3++;
             }
         }
     }
-    counter_pass++;
+    //counter_pass++;
     barycentric_w = 1.0 - barycentric_u.array() - barycentric_v.array(); // Comes out the same as Python
     barycentric_coordinates.col(0) = barycentric_u;
     barycentric_coordinates.col(1) = barycentric_v;
@@ -372,7 +376,7 @@ EiVector3d return_ray_color(const Ray &ray) {
             node_coords_test(i,j) = node_coords_arr[i][j];
         }}
     HitRecord intersection_record; // Create HitRecord struct
-    IntersectionOutput intersection = intersect_plane(ray, node_coords_test);
+    IntersectionOutput intersection = intersect_plane(ray, node_coords_arr);
     Eigen::Index minRowIndex, minColIndex;
 
     intersection.t_values.minCoeff(&minRowIndex, &minColIndex); // Find indices of the smallest t_value
@@ -404,7 +408,7 @@ void render_ppm_image(const Camera& camera1) {
     image_file.open("test.ppm");
     image_file << "P3\n" << image_width << ' ' << image_height << "\n255\n";
     for (int j = 0; j < image_height; j++) {
-        //std::clog << "\rScanlines remaining: " << (image_height - j) << ' ' << std::flush;
+       std::clog << "\rScanlines remaining: " << (image_height - j) << ' ' << std::flush;
         for (int i = 0; i < image_width; i++) {
             //EiVector3d pixel_color = EiVector3d::Zero(); // for anti-aliasing later
             EiVector3d pixel_center = camera1.pixel_00_center + i * camera1.matrix_pixel_spacing.row(0) + j * camera1.matrix_pixel_spacing.row(1);
@@ -428,9 +432,13 @@ void edgeArray(const double (&node_coords_arr)[44][9]) {
     double edge0_arr[44][3];
     double edge1_arr[44][3];
     double nEdge2_arr[44][3];
+    EiMatrixDd edge0 (44,9);
+    EiMatrixDd nEdge2 (44,9);
     for (int i=0; i < 44; i++) {
         for (int j=0; j < 3; j++) {
             //std::cout<<node_coords_arr[i][j] << " ";
+            edge0(i,j) = node_coords_arr[i][j+3] - node_coords_arr[i][j];
+            nEdge2(i,j) = node_coords_arr[i][j+6] - node_coords_arr[i][j];
             edge0_arr[i][j] = node_coords_arr[i][j+3] - node_coords_arr[i][j];
             edge1_arr[i][j] = node_coords_arr[i][j+6] - node_coords_arr[i][j+3];
             nEdge2_arr[i][j] = node_coords_arr[i][j+6] - node_coords_arr[i][j];
@@ -444,6 +452,7 @@ void edgeArray(const double (&node_coords_arr)[44][9]) {
 }
 
 void edgeEigen(EiMatrixDd &node_coords_test) {
+
     // Eigen edge test
     //EiMatrixDd node_coords_test(2,9);
    //node_coords_test.row(0) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0;
@@ -529,8 +538,13 @@ int main() {
     //node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
     //intersect_plane(test_ray, node_coords_test);
 
+
+    std::chrono::high_resolution_clock::time_point begin1 = std::chrono::high_resolution_clock::now();
     render_ppm_image(test_camera);
-    std::cout<<"Counter_con1: " << counter_con1 << "counter_con2: " << counter_con2 << "counter_con3: " << counter_con3 << "counter_pass: " << counter_pass << "total_counter:" << total_counter <<std::endl;
+    std::chrono::high_resolution_clock::time_point end1 = std::chrono::high_resolution_clock::now();
+    std::cout << "runtime: " << std::chrono::duration_cast<std::chrono::milliseconds> (end1 - begin1) << std::endl;
+    //render_ppm_image(test_camera);
+    //std::cout<<"Counter_con1: " << counter_con1 << "counter_con2: " << counter_con2 << "counter_con3: " << counter_con3 << "counter_pass: " << counter_pass << "total_counter:" << total_counter <<std::endl;
     //edgeArray(node_coords_arr);
     // Code for timing
     /*
