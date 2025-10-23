@@ -21,6 +21,9 @@ using EiMatrix4d = Eigen::Matrix<double, 4, 4, Eigen::StorageOptions::RowMajor>;
 using EiVector3d = Eigen::Matrix<double, 1, 3, Eigen::StorageOptions::RowMajor>; // Vector; shape (3)
 using EiMatrixDd = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>; // Dynamic-size matrix (Dd = dynamic double)
 using EiVectorD3d = Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>; // Matrix shaped (D,3); mostly for coordinates to avoid having to loop constantly in the intersection code to get cross products etc. Think coordinates stacked together
+using EiArrayD3d = Eigen::Array<double, Eigen::Dynamic, 3, Eigen::RowMajor>; // Same as VectorD3d, just an array for coefficient-wise operations
+
+
 
 //////////////////////////////////// INPUT
 double aspect_ratio = 16.0/9.0;
@@ -95,7 +98,6 @@ private:
 //////////////////////////////////// RAYS
 struct Ray {
     //EIGEN_MAKE_ALIGNED_OPERATOR_NEW; // Required for structures using Eigen members
-    //Eigen::Matrix<double, 3, 1, Eigen::StorageOptions::RowMajor, Eigen:: Aligned8> origin;
     EiVector3d origin;
     EiVector3d direction;
     double t_min;
@@ -169,43 +171,36 @@ EiVectorD3d cross_rowwise(const EiVectorD3d &mat1, const EiVectorD3d &mat2) {
     }
     return cross_product_result;
 }
-
 //////////////////////////////////// INTERSECTION
 struct IntersectionOutput {
     Eigen::ArrayXXd barycentric_coordinates; // size elements x 3. Array because I'll be interested in using it element-wise
     EiVectorD3d plane_normals; // size elements x 3
-    Eigen::Vector<double, Eigen::Dynamic> t_values; // size elements x 1
+    Eigen::Array<double, Eigen::Dynamic, 1>  t_values; // size elements x 1
 };
 
 int counter_con1 = 0;
 int counter_con2 = 0;
-int counter_con3 = 0;
 int counter_pass = 0;
 int total_counter = 0;
 
 // WIP: see where I actually need vectors/matrices, and where I always convert them into array objects
 IntersectionOutput intersect_plane(const Ray &ray, const double (&node_coords_arr)[44][9]) {
-//IntersectionOutput intersect_plane(const Ray &ray, double (&nodes)[44][9]) {
     // Declare everything on the top because else I get very confused
-    //long long number_of_elements = nodes.rows(); // number of rows = number of triangles, will give us indices for some bits
-    long long number_of_elements = 44;
-    // Ray data
-    EiVector3d ray_direction = ray.direction.normalized(); // TROUBLESHOOTING: forgot to normalize this...
-    EiVector3d ray_origin = ray.origin; // shape (3,1)
-    // Broadcasted to use in vectorised operations on matrices
-    EiVectorD3d ray_directions = ray_direction.replicate(number_of_elements, 1);
-    EiVectorD3d ray_origins = ray_origin.replicate(number_of_elements, 1);
-    // std::cout << "ray_direction: " << ray_directions << std::endl; // Broadcasting works as expected
+    long long number_of_elements = 44; // number of triangles, will give us indices for some bits
+    // Ray data broadcasted to use in vectorised operations on matrices
+    // This is faster than doing it in a loop
+    EiVectorD3d ray_directions = ray.direction.normalized().replicate(number_of_elements, 1);
+    EiArrayD3d ray_origins = ray.origin.replicate(number_of_elements, 1).array();
+
     // Edges
-    EiMatrixDd edge0 (number_of_elements,3), tempFort (number_of_elements,3), nEdge2 (number_of_elements,3), nodes0; // shape (faces, 3) each
-    //EiVectorD3d edge0, edge1, nEdge2; // shape (faces, 3) each
+    EiMatrixDd edge0 (number_of_elements,3), nEdge2 (number_of_elements,3); // shape (faces, 3) each
+    Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>  nodes0 (number_of_elements, 3);
     // Intersections and barycentric coordinates
-    EiVectorD3d p_vec, t_vec, q_vec; // shape (faces, 3) each
+    EiArrayD3d p_vec, q_vec, t_vec; // shape (faces, 3) each
     EiVectorD3d plane_normals; // Shape (faces, 3)
-    Eigen::Vector<double, Eigen::Dynamic> determinants, inverse_determinants; //shape (faces, 1) each
-    Eigen::Vector<double, Eigen::Dynamic> barycentric_u, barycentric_v, barycentric_w; // shape (faces, 1) each
+    Eigen::Array<double, Eigen::Dynamic, 1> determinants, inverse_determinants; //shape (faces, 1) each
+    Eigen::Array<double, Eigen::Dynamic, 1> barycentric_u, barycentric_v, barycentric_w, t_values; // shape (faces, 1) each
     Eigen::ArrayXXd barycentric_coordinates(number_of_elements, 3); // shape (faces, 3) Array so we can do things element-wise with those
-    Eigen::Vector<double, Eigen::Dynamic> t_values; // Shape (faces, 1)
     /// Define default negative output if there is no intersection
     IntersectionOutput negative_output {
         Eigen::ArrayXXd(number_of_elements, 3),
@@ -213,50 +208,25 @@ IntersectionOutput intersect_plane(const Ray &ray, const double (&node_coords_ar
         Eigen::Vector<double, Eigen::Dynamic>::Constant(number_of_elements, 1, std::numeric_limits<double>::infinity())
     };
 
-    //double edge0_arr[44][3];
-    //double edge1_arr[44][3];
-    //double nEdge2_arr[44][3];
-    /*
-    for (int i = 0; i < 44; i++) {
-        for (int j = 0; j < 3; j++) {
-            edge0(i,j) = nodes[i][j+3] - nodes[i][j];
-            nodes0(i,j) = nodes[i][j];
-            // edge1(i,j) = nodes[i][j+6] - nodes[i][j+3]; // We don't really use it in calculations, so keep it here... because, just don't waste memory on this
-            nEdge2(i,j) = nodes[i][j+6] - nodes[i][j];
-            //edge0_arr[i][j] = nodes[i][j+3] - nodes[i][j];
-            //edge1_arr[i][j] = nodes[i][j+6] - nodes[i][j+3];
-            //nEdge2_arr[i][j] = nodes[i][j+6] - nodes[i][j];
-            //std::cout << edge0_arr[i][j]<< std::endl;
-        }
-    }
-*/
-
     // Calculations - edges and normals
     for (int i=0; i < 44; i++) {
         for (int j=0; j < 3; j++) {
             //std::cout<<node_coords_arr[i][j] << " ";
             edge0(i,j) = node_coords_arr[i][j+3] - node_coords_arr[i][j];
-            tempFort(i,j) = node_coords_arr[i][j];
+            nodes0(i,j) = node_coords_arr[i][j];
             // Skip edge1 because it never gets used in the calculations anyway
             nEdge2(i,j) = node_coords_arr[i][j+6] - node_coords_arr[i][j];
         }
     }
 
     plane_normals = cross_rowwise(edge0, nEdge2); // not normalised!
-    //std::cout << edge0.row(0) << std::endl; // All calculated properly
-    //std::cout << edge1.row(0) << std::endl;
-    //std::cout <<nEdge2.row(0) << std::endl;
     // Step 1: Quantities for the Moller Trumbore method
-    p_vec = cross_rowwise(ray_directions, nEdge2); // To my very own surprise, my function gives the correct output
-    //std::cout << p_vec.array() << std::endl;
-    determinants = (edge0.array() * p_vec.array()).rowwise().sum(); // Row-wise dot product // Correct
-    //std::cout << "determinants: " << determinants.transpose() << std::endl;
-    // Step 2: Culling.
-    //Determinant negative -> triangle is back-facing. If det is close to 0, ray misses the triangle.
-    // If determinant is close to 0, ray and triangle are parallel and ray misses the triangle.
+    p_vec = cross_rowwise(ray_directions, nEdge2); // Assigns a vector to an array variable, but Eigen automatically converts so long as the underlying sizes are correct at initialization
+    determinants = (edge0.array() * p_vec).rowwise().sum(); // Row-wise dot product
 
-    Eigen::Array<bool, Eigen::Dynamic, Eigen::Dynamic> valid_mask = (determinants.array() > 1e-6) && (determinants.array() > 0);
-    //std::cout << "valid_mask: " << valid_mask.transpose() << std::endl;
+    // Step 2: Culling.
+    //Determinant negative -> triangle is back-facing. If det is close to 0, ray and triangle are parallel and ray misses the triangle.
+    Eigen::Array<bool, Eigen::Dynamic, Eigen::Dynamic> valid_mask = (determinants > 1e-6) && (determinants > 0);
     if (!valid_mask.any()) {
         //std::cout << "Condition 1 triggered" << std::endl;
         //counter_con1++;
@@ -264,49 +234,36 @@ IntersectionOutput intersect_plane(const Ray &ray, const double (&node_coords_ar
     }
 
     // Step 3: Test if ray is in front of the triangle
-    inverse_determinants = determinants.array().inverse(); // Element-wise inverse. Correct
-    //std::cout << "inverse_determinants: " << inverse_determinants.transpose() << std::endl;
-    //t_vec = ray_origins.array() - nodes0.array();
-    t_vec = ray_origins.array() - tempFort.array(); // is ok, may return 0s depending on data passed, but tested with moving the camera center and works.
-    //std::cout << "orig: " << ray_origin << std::endl;
-    //std::cout << "block: " << nodes.block(0, 0, 1, 3) << std::endl;
-    //std::cout << "t_vec: " << t_vec << std::endl; // t_vec is correct
-    barycentric_u = ((t_vec.array() * p_vec.array()).rowwise().sum()).array() * inverse_determinants.array(); // comes out the same as benchmark
-    //std::cout << barycentric_u << std::endl;
-    // Check barycentric_u
-    //valid_mask = valid_mask && (barycentric_u.array() >= 0) && (barycentric_u.array() <= 1);
-    valid_mask = valid_mask && (barycentric_u.array() >= 0) && (barycentric_u.array() <= 1);
+    inverse_determinants = determinants.inverse(); // Element-wise inverse. Correct
+    t_vec = ray_origins - nodes0;
+    barycentric_u = ((t_vec * p_vec).rowwise().sum()).array() * inverse_determinants; // comes out the same as benchmark
+    valid_mask = valid_mask && (barycentric_u >= 0) && (barycentric_u <= 1);
     if (!valid_mask.any()) {
         //counter_con2++;
         //std::cout << "Condition 2 triggered" << std::endl;
         return negative_output; // No intersection - return infinity
     }
 
-    q_vec = cross_rowwise(t_vec, edge0); // comes out like in Python. Happy days
-    //std::cout << q_vec << std::endl;
-    barycentric_v = (ray_directions.array() * q_vec.array()).rowwise().sum().matrix().array() * inverse_determinants.array(); // Comes out correctly
+    q_vec = cross_rowwise(t_vec.matrix(), edge0); //
+    barycentric_v = (ray_directions.array() * q_vec).rowwise().sum().matrix().array() * inverse_determinants; // Comes out correctly
     // Check barycentric_v and sum
-    //std::cout<<barycentric_v<<std::endl;
-    valid_mask = valid_mask && (barycentric_v.array() >= 0) && ((barycentric_u.array() + barycentric_v.array()) <= 1);
+    valid_mask = valid_mask && (barycentric_v >= 0) && ((barycentric_u + barycentric_v) <= 1);
     // t values
-    t_values = (nEdge2.array() * q_vec.array()).rowwise().sum().matrix().array() * inverse_determinants.array(); // Same as Python
-    //std::cout << "t_values: " << t_values << std::endl;
-    valid_mask = valid_mask && (t_values.array() >= ray.t_min) && (t_values.array() <= ray.t_max);
+    t_values = (nEdge2.array() * q_vec).rowwise().sum().array() * inverse_determinants;
+    valid_mask = valid_mask && (t_values >= ray.t_min) && (t_values <= ray.t_max);
     // Iterate through all t_values and set them to infinity if they don't satisfy the conditions imposed by the mask
     for (int i = 0; i < t_values.rows(); ++i) {
         for (int j = 0; j < t_values.cols(); ++j) {
             if (!valid_mask(i, j)) {
                 t_values(i, j) = std::numeric_limits<double>::infinity();
-                //counter_con3++;
             }
         }
     }
     //counter_pass++;
-    barycentric_w = 1.0 - barycentric_u.array() - barycentric_v.array(); // Comes out the same as Python
+    barycentric_w = 1.0 - barycentric_u - barycentric_v; // Comes out the same as Python
     barycentric_coordinates.col(0) = barycentric_u;
     barycentric_coordinates.col(1) = barycentric_v;
     barycentric_coordinates.col(2) = barycentric_w;
-    //std::cout << "barycentric_coordinates: " << barycentric_coordinates << std::endl; // Also same as Python. Troubleshooting of this section should be complete.
     return IntersectionOutput{barycentric_coordinates, plane_normals, t_values};
 
 }
@@ -324,57 +281,52 @@ EiVector3d return_ray_color(const Ray &ray) {
     //node_coords_test.row(0) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0;
     //node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
     double node_coords_arr[44][9] = {
-        0.0,0.0,0.0,0.0,0.49999999999999983,0.0,0.49999999999999994,0.0,0.0,
-0.0,0.0,0.0,0.0,0.49999999999999983,0.5,0.0,0.49999999999999983,0.0,
-0.0,0.0,0.0,0.49999999999999994,0.0,0.0,0.0,0.0,0.5,
-0.0,0.0,0.0,0.0,0.0,0.5,0.0,0.49999999999999983,0.5,
-0.49999999999999994,0.0,0.0,0.49999999999999994,0.0,0.5,0.0,0.0,0.5,
-0.49999999999999994,0.0,0.0,0.0,0.49999999999999983,0.0,0.5,0.49999999999999983,0.0,
-0.49999999999999994,0.0,0.0,0.5,0.49999999999999983,0.0,1.0,0.0,0.0,
-0.49999999999999994,0.0,0.0,1.0,0.0,0.0,0.49999999999999994,0.0,0.5,
-0.0,0.49999999999999983,0.0,0.0,1.0,0.0,0.5,0.49999999999999983,0.0,
-0.0,0.49999999999999983,0.0,0.0,1.0,0.5,0.0,1.0,0.0,
-0.0,0.49999999999999983,0.0,0.0,0.49999999999999983,0.5,0.0,1.0,0.5,
-0.0,0.49999999999999983,0.5,0.0,0.0,0.5,0.49999999999999994,0.0,0.5,
-0.0,0.49999999999999983,0.5,0.49999999999999994,0.0,0.5,0.5,0.49999999999999983,0.5,
-0.0,0.49999999999999983,0.5,0.5,0.49999999999999983,0.5,0.0,1.0,0.5,
-0.49999999999999994,0.0,0.5,1.0,0.0,0.0,1.0,0.0,0.5,
-0.49999999999999994,0.0,0.5,1.0,0.0,0.5,0.5,0.49999999999999983,0.5,
-0.5,0.49999999999999983,0.0,0.0,1.0,0.0,0.5,1.0,0.0,
-0.5,0.49999999999999983,0.0,1.0,0.49999999999999994,0.0,1.0,0.0,0.0,
-0.5,0.49999999999999983,0.0,0.5,1.0,0.0,1.0,0.49999999999999994,0.0,
-0.5,0.49999999999999983,0.5,0.5,1.0,0.5,0.0,1.0,0.5,
-0.5,0.49999999999999983,0.5,1.0,0.0,0.5,1.0,0.49999999999999994,0.5,
-0.5,0.49999999999999983,0.5,1.0,0.49999999999999994,0.5,0.5,1.0,0.5,
-0.0,1.0,0.0,0.0,1.5,0.0,0.5,1.0,0.0,
-0.0,1.0,0.0,0.0,1.5,0.5,0.0,1.5,0.0,
-0.0,1.0,0.0,0.0,1.0,0.5,0.0,1.5,0.5,
-0.0,1.0,0.5,0.5,1.0,0.5,0.0,1.5,0.5,
-0.5,1.0,0.0,0.0,1.5,0.0,0.5000000000000001,1.5,0.0,
-0.5,1.0,0.0,1.0,1.0,0.0,1.0,0.49999999999999994,0.0,
-0.5,1.0,0.0,0.5000000000000001,1.5,0.0,1.0,1.0,0.0,
-0.5,1.0,0.5,0.5000000000000001,1.5,0.5,0.0,1.5,0.5,
-0.5,1.0,0.5,1.0,0.49999999999999994,0.5,1.0,1.0,0.5,
-0.5,1.0,0.5,1.0,1.0,0.5,0.5000000000000001,1.5,0.5,
-0.0,1.5,0.0,0.5000000000000001,1.5,0.5,0.5000000000000001,1.5,0.0,
-0.0,1.5,0.0,0.0,1.5,0.5,0.5000000000000001,1.5,0.5,
-0.5000000000000001,1.5,0.0,1.0,1.5,0.0,1.0,1.0,0.0,
-0.5000000000000001,1.5,0.0,1.0,1.5,0.5,1.0,1.5,0.0,
-0.5000000000000001,1.5,0.0,0.5000000000000001,1.5,0.5,1.0,1.5,0.5,
-0.5000000000000001,1.5,0.5,1.0,1.0,0.5,1.0,1.5,0.5,
-1.0,0.0,0.0,1.0,0.49999999999999994,0.0,1.0,0.49999999999999994,0.5,
-1.0,0.0,0.0,1.0,0.49999999999999994,0.5,1.0,0.0,0.5,
-1.0,0.49999999999999994,0.0,1.0,1.0,0.0,1.0,1.0,0.5,
-1.0,0.49999999999999994,0.0,1.0,1.0,0.5,1.0,0.49999999999999994,0.5,
-1.0,1.0,0.0,1.0,1.5,0.0,1.0,1.5,0.5,
-1.0,1.0,0.0,1.0,1.5,0.5,1.0,1.0,0.5,
-    };
+            0.0,0.0,0.0,0.0,0.49999999999999983,0.0,0.49999999999999994,0.0,0.0,
+        0.0,0.0,0.0,0.0,0.49999999999999983,0.5,0.0,0.49999999999999983,0.0,
+        0.0,0.0,0.0,0.49999999999999994,0.0,0.0,0.0,0.0,0.5,
+        0.0,0.0,0.0,0.0,0.0,0.5,0.0,0.49999999999999983,0.5,
+        0.49999999999999994,0.0,0.0,0.49999999999999994,0.0,0.5,0.0,0.0,0.5,
+        0.49999999999999994,0.0,0.0,0.0,0.49999999999999983,0.0,0.5,0.49999999999999983,0.0,
+        0.49999999999999994,0.0,0.0,0.5,0.49999999999999983,0.0,1.0,0.0,0.0,
+        0.49999999999999994,0.0,0.0,1.0,0.0,0.0,0.49999999999999994,0.0,0.5,
+        0.0,0.49999999999999983,0.0,0.0,1.0,0.0,0.5,0.49999999999999983,0.0,
+        0.0,0.49999999999999983,0.0,0.0,1.0,0.5,0.0,1.0,0.0,
+        0.0,0.49999999999999983,0.0,0.0,0.49999999999999983,0.5,0.0,1.0,0.5,
+        0.0,0.49999999999999983,0.5,0.0,0.0,0.5,0.49999999999999994,0.0,0.5,
+        0.0,0.49999999999999983,0.5,0.49999999999999994,0.0,0.5,0.5,0.49999999999999983,0.5,
+        0.0,0.49999999999999983,0.5,0.5,0.49999999999999983,0.5,0.0,1.0,0.5,
+        0.49999999999999994,0.0,0.5,1.0,0.0,0.0,1.0,0.0,0.5,
+        0.49999999999999994,0.0,0.5,1.0,0.0,0.5,0.5,0.49999999999999983,0.5,
+        0.5,0.49999999999999983,0.0,0.0,1.0,0.0,0.5,1.0,0.0,
+        0.5,0.49999999999999983,0.0,1.0,0.49999999999999994,0.0,1.0,0.0,0.0,
+        0.5,0.49999999999999983,0.0,0.5,1.0,0.0,1.0,0.49999999999999994,0.0,
+        0.5,0.49999999999999983,0.5,0.5,1.0,0.5,0.0,1.0,0.5,
+        0.5,0.49999999999999983,0.5,1.0,0.0,0.5,1.0,0.49999999999999994,0.5,
+        0.5,0.49999999999999983,0.5,1.0,0.49999999999999994,0.5,0.5,1.0,0.5,
+        0.0,1.0,0.0,0.0,1.5,0.0,0.5,1.0,0.0,
+        0.0,1.0,0.0,0.0,1.5,0.5,0.0,1.5,0.0,
+        0.0,1.0,0.0,0.0,1.0,0.5,0.0,1.5,0.5,
+        0.0,1.0,0.5,0.5,1.0,0.5,0.0,1.5,0.5,
+        0.5,1.0,0.0,0.0,1.5,0.0,0.5000000000000001,1.5,0.0,
+        0.5,1.0,0.0,1.0,1.0,0.0,1.0,0.49999999999999994,0.0,
+        0.5,1.0,0.0,0.5000000000000001,1.5,0.0,1.0,1.0,0.0,
+        0.5,1.0,0.5,0.5000000000000001,1.5,0.5,0.0,1.5,0.5,
+        0.5,1.0,0.5,1.0,0.49999999999999994,0.5,1.0,1.0,0.5,
+        0.5,1.0,0.5,1.0,1.0,0.5,0.5000000000000001,1.5,0.5,
+        0.0,1.5,0.0,0.5000000000000001,1.5,0.5,0.5000000000000001,1.5,0.0,
+        0.0,1.5,0.0,0.0,1.5,0.5,0.5000000000000001,1.5,0.5,
+        0.5000000000000001,1.5,0.0,1.0,1.5,0.0,1.0,1.0,0.0,
+        0.5000000000000001,1.5,0.0,1.0,1.5,0.5,1.0,1.5,0.0,
+        0.5000000000000001,1.5,0.0,0.5000000000000001,1.5,0.5,1.0,1.5,0.5,
+        0.5000000000000001,1.5,0.5,1.0,1.0,0.5,1.0,1.5,0.5,
+        1.0,0.0,0.0,1.0,0.49999999999999994,0.0,1.0,0.49999999999999994,0.5,
+        1.0,0.0,0.0,1.0,0.49999999999999994,0.5,1.0,0.0,0.5,
+        1.0,0.49999999999999994,0.0,1.0,1.0,0.0,1.0,1.0,0.5,
+        1.0,0.49999999999999994,0.0,1.0,1.0,0.5,1.0,0.49999999999999994,0.5,
+        1.0,1.0,0.0,1.0,1.5,0.0,1.0,1.5,0.5,
+        1.0,1.0,0.0,1.0,1.5,0.5,1.0,1.0,0.5,
+        };
 
-    EiMatrixDd node_coords_test(44,9);
-    for (int i=0; i < 44; i++) {
-        for (int j=0; j < 9; j++) {
-            node_coords_test(i,j) = node_coords_arr[i][j];
-        }}
     HitRecord intersection_record; // Create HitRecord struct
     IntersectionOutput intersection = intersect_plane(ray, node_coords_arr);
     Eigen::Index minRowIndex, minColIndex;
@@ -450,6 +402,7 @@ void edgeArray(const double (&node_coords_arr)[44][9]) {
     //std::cout << "rows" << sizeof edge0_arr / sizeof edge0_arr[0] << std::endl;
     //std::cout << "cols" << sizeof edge0_arr[0] / sizeof(double) << std::endl;
 }
+
 
 void edgeEigen(EiMatrixDd &node_coords_test) {
 
