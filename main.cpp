@@ -127,6 +127,7 @@ inline void set_face_normal(const Ray &ray, EiVector3d &normal_surface) {
 }
 
 //////////////////////////////////// CROSS-PRODUCT
+/*
 EiVectorD3d cross_rowwise(const EiVectorD3d &mat1, const EiVectorD3d &mat2) {
     // Row-wise cross product for 2 matrices (i.e., treating each row as a vector).
     // Also works for multiplying a matrix with a row vector, so the input order determines the multiplication order. Happy days.
@@ -142,8 +143,7 @@ EiVectorD3d cross_rowwise(const EiVectorD3d &mat1, const EiVectorD3d &mat2) {
             EiVectorD3d cross_product_result(mat2.rows(), 3);
             EiVector3d v1_const = mat1.row(0); // It should only have one row anyway, but just to be sure
             for (int i = 0; i < mat2.rows(); i++) {
-                Eigen::Vector3d v2 = mat2.row(i);
-                cross_product_result.row(i) = v1_const.cross(v2);
+                cross_product_result.row(i) = v1_const.cross(mat2.row(i));
             }
             return cross_product_result;
         }
@@ -152,8 +152,7 @@ EiVectorD3d cross_rowwise(const EiVectorD3d &mat1, const EiVectorD3d &mat2) {
             EiVectorD3d cross_product_result(number_of_rows, 3);
             EiVector3d v2_const = mat2.row(0);
             for (int i = 0; i < number_of_rows; i++) {
-                Eigen::Vector3d v1 = mat1.row(i);
-                cross_product_result.row(i) = v1.cross(v2_const);
+                cross_product_result.row(i) = mat1.row(i).cross(v2_const);
             }
             return cross_product_result;
         }
@@ -165,12 +164,27 @@ EiVectorD3d cross_rowwise(const EiVectorD3d &mat1, const EiVectorD3d &mat2) {
     }
     EiVectorD3d cross_product_result(number_of_rows, 3);
     for (int i = 0; i < number_of_rows; i++) {
-        Eigen::Vector3d v1 = mat1.row(i);
-        Eigen::Vector3d v2 = mat2.row(i);
-        cross_product_result.row(i) = v1.cross(v2);
+        cross_product_result.row(i) = mat1.row(i).cross(mat2.row(i));
     }
     return cross_product_result;
 }
+*/
+EiVectorD3d cross_rowwise(const EiVectorD3d &mat1, const EiVectorD3d &mat2) {
+    // Row-wise cross product for 2 matrices (i.e., treating each row as a vector).
+    // Also works for multiplying a matrix with a row vector, so the input order determines the multiplication order. Happy days.
+    // Written because this otherwise can't be a one-liner like in NumPy - Eigen's cross product works only for vector types.
+    if (mat1.cols() != 3 || mat2.cols() != 3) {
+        std::cerr << "Error: matrices need to have exactly 3 columns to find the cross product" << std::endl;
+        return {};
+    }
+    long long number_of_rows = mat1.rows(); // number of rows. Long long to match the type from Eigen::Index
+    EiVectorD3d cross_product_result(number_of_rows, 3);
+    cross_product_result.col(0) = mat1.col(1).cwiseProduct(mat2.col(2)) - mat1.col(2).cwiseProduct(mat2.col(1));
+    cross_product_result.col(1) = mat1.col(2).cwiseProduct(mat2.col(0)) - mat1.col(0).cwiseProduct(mat2.col(2));
+    cross_product_result.col(2) = mat1.col(0).cwiseProduct(mat2.col(1)) - mat1.col(1).cwiseProduct(mat2.col(0));
+    return cross_product_result;
+}
+
 //////////////////////////////////// INTERSECTION
 struct IntersectionOutput {
     Eigen::ArrayXXd barycentric_coordinates; // size elements x 3. Array because I'll be interested in using it element-wise
@@ -351,9 +365,6 @@ EiVector3d return_ray_color(const Ray &ray) {
     return color;
 }
 
-
-
-
 //////////////////////////////////// RENDERING
 void render_ppm_image(const Camera& camera1) {
     std::ofstream image_file;
@@ -379,42 +390,8 @@ void render_ppm_image(const Camera& camera1) {
     std::cout << "\r Done. \n";
 }
 
-void edgeArray(const double (&node_coords_arr)[44][9]) {
-    //double node_coords_arr[2][9] = {0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0};
-    double edge0_arr[44][3];
-    double edge1_arr[44][3];
-    double nEdge2_arr[44][3];
-    EiMatrixDd edge0 (44,9);
-    EiMatrixDd nEdge2 (44,9);
-    for (int i=0; i < 44; i++) {
-        for (int j=0; j < 3; j++) {
-            //std::cout<<node_coords_arr[i][j] << " ";
-            edge0(i,j) = node_coords_arr[i][j+3] - node_coords_arr[i][j];
-            nEdge2(i,j) = node_coords_arr[i][j+6] - node_coords_arr[i][j];
-            edge0_arr[i][j] = node_coords_arr[i][j+3] - node_coords_arr[i][j];
-            edge1_arr[i][j] = node_coords_arr[i][j+6] - node_coords_arr[i][j+3];
-            nEdge2_arr[i][j] = node_coords_arr[i][j+6] - node_coords_arr[i][j];
-            std::cout << edge0_arr[i][j] << " ";
-            //node_coords_test(i,j) = node_coords_arr[i][j];
-        }
-        std::cout << std::endl;
-    }
     //std::cout << "rows" << sizeof edge0_arr / sizeof edge0_arr[0] << std::endl;
     //std::cout << "cols" << sizeof edge0_arr[0] / sizeof(double) << std::endl;
-}
-
-
-void edgeEigen(EiMatrixDd &node_coords_test) {
-
-    // Eigen edge test
-    //EiMatrixDd node_coords_test(2,9);
-   //node_coords_test.row(0) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0;
-    //node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
-    EiMatrixDd edge0 = node_coords_test.block(0, 3, node_coords_test.rows(), 3) - node_coords_test.block(0, 0, node_coords_test.rows(), 3);
-    EiMatrixDd edge1 = node_coords_test.block(0, 6, node_coords_test.rows(), 3)  - node_coords_test.block(0, 3, node_coords_test.rows(), 3);
-    EiMatrixDd nEdge2 = node_coords_test.block(0, 6, node_coords_test.rows(), 3) - node_coords_test.block(0, 0, node_coords_test.rows(), 3);
-}
-
 
 int main() {
     //Camera test_camera{EiVector3d(0, 1, 1), EiVector3d(0, 0, -1), 90};
@@ -491,27 +468,10 @@ int main() {
     //node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
     //intersect_plane(test_ray, node_coords_test);
 
-
     std::chrono::high_resolution_clock::time_point begin1 = std::chrono::high_resolution_clock::now();
     render_ppm_image(test_camera);
     std::chrono::high_resolution_clock::time_point end1 = std::chrono::high_resolution_clock::now();
     std::cout << "runtime: " << std::chrono::duration_cast<std::chrono::milliseconds> (end1 - begin1) << std::endl;
-    //render_ppm_image(test_camera);
-    //std::cout<<"Counter_con1: " << counter_con1 << "counter_con2: " << counter_con2 << "counter_con3: " << counter_con3 << "counter_pass: " << counter_pass << "total_counter:" << total_counter <<std::endl;
-    //edgeArray(node_coords_arr);
-    // Code for timing
-    /*
-    std::chrono::high_resolution_clock::time_point begin1 = std::chrono::high_resolution_clock::now();
-    edgeArray(node_coords_arr);
-    std::chrono::high_resolution_clock::time_point end1 = std::chrono::high_resolution_clock::now();
-    std::cout << "Array runtime: " << std::chrono::duration_cast<std::chrono::nanoseconds> (end1 - begin1) << std::endl;
-
-    std::chrono::high_resolution_clock::time_point begin2 = std::chrono::high_resolution_clock::now();
-    edgeEigen(node_coords_test);
-    std::chrono::high_resolution_clock::time_point end2 = std::chrono::high_resolution_clock::now();
-    std::cout << "Eigen runtime: " << std::chrono::duration_cast<std::chrono::nanoseconds> (end2 - begin2) << std::endl;
-    */
-
 
     return 0;
 }
