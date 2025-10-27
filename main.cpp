@@ -9,6 +9,7 @@
 #include <vector>
 #include <chrono>
 #include <random>
+#include <unordered_map>
 
 inline double degreesToRadians(double angleDeg) {
     // Converts degrees to radians. Used to convert the angle of vertical view.
@@ -362,6 +363,44 @@ void render_ppm_image(const Camera& camera1) {
     //std::cout << "rows" << sizeof edge0_arr / sizeof edge0_arr[0] << std::endl;
     //std::cout << "cols" << sizeof edge0_arr[0] / sizeof(double) << std::endl;
 
+void edgesFromMap(const int (&connectivity)[44][3], std::unordered_map<int, std::array<double, 3>> (&coords_map)) {
+    EiMatrixDd edge0 (44,3), nEdge2 (44,3); // shape (faces, 3) each
+    for (int i = 0; i < 44; i++) {
+        int node_0 = connectivity[i][0];
+        int node_1 = connectivity[i][1];
+        int node_2 = connectivity[i][2];
+        for (int j = 0; j < 3; j++) {
+            edge0(i,j) = coords_map[node_1][j] - coords_map[node_0][j];
+            nEdge2(i,j) = coords_map[node_0][j] - coords_map[node_2][j];
+        }
+    }
+
+}
+
+void edgesFromArray(const int (&connectivity)[44][3], const double (&coords)[24][4]) {
+    EiMatrixDd edge0 (44,3), nEdge2 (44,3); // shape (faces, 3) each
+    for (int i = 0; i < 44; i++) {
+        int node_0 = connectivity[i][0];
+        int node_1 = connectivity[i][1];
+        int node_2 = connectivity[i][2];
+        for (int j = 0; j < 3; j++) {
+            edge0(i,j) = coords[node_1][j] - coords[node_0][j];
+            nEdge2(i,j) = coords[node_0][j] - coords[node_2][j];
+        }
+    }
+}
+
+void edgesFromFlatArray(const double(&node_coords_arr)[44][9]) {
+    EiMatrixDd edge0 (44,3), nEdge2 (44,3); // shape (faces, 3) each
+    for (int i=0; i < 44; i++) {
+        for (int j=0; j < 3; j++) {
+            edge0(i,j) = node_coords_arr[i][j+3] - node_coords_arr[i][j];
+            // Skip edge1 because it never gets used in the calculations anyway
+            nEdge2(i,j) = node_coords_arr[i][j+6] - node_coords_arr[i][j];
+        }
+    }
+}
+
 int main() {
     //Camera test_camera{EiVector3d(0, 1, 1), EiVector3d(0, 0, -1), 90};
     Camera test_camera{EiVector3d(-0.5, 1.1, 1.1), EiVector3d(0, 0, -1), 90};
@@ -413,8 +452,94 @@ int main() {
 1.0,0.49999999999999994,0.0,1.0,1.0,0.0,1.0,1.0,0.5,
 1.0,0.49999999999999994,0.0,1.0,1.0,0.5,1.0,0.49999999999999994,0.5,
 1.0,1.0,0.0,1.0,1.5,0.0,1.0,1.5,0.5,
-1.0,1.0,0.0,1.0,1.5,0.5,1.0,1.0,0.5,
+1.0,1.0,0.0,1.0,1.5,0.5,1.0,1.0,0.5
     };
+
+// Nodal coords; 4, but 4th isn't of interest
+double coords[24][4] = {
+        0.0,0.0,0.0,1.0,
+    0.0,0.49999999999999983,0.0,1.0,
+    0.49999999999999994,0.0,0.0,1.0,
+    0.0,0.49999999999999983,0.5,1.0,
+    0.0,0.0,0.5,1.0,
+    0.49999999999999994,0.0,0.5,1.0,
+    0.5,0.49999999999999983,0.0,1.0,
+    1.0,0.0,0.0,1.0,
+    0.0,1.0,0.0,1.0,
+    0.0,1.0,0.5,1.0,
+    0.5,0.49999999999999983,0.5,1.0,
+    1.0,0.0,0.5,1.0,
+    0.5,1.0,0.0,1.0,
+    1.0,0.49999999999999994,0.0,1.0,
+    0.5,1.0,0.5,1.0,
+    1.0,0.49999999999999994,0.5,1.0,
+    0.0,1.5,0.0,1.0,
+    0.0,1.5,0.5,1.0,
+    0.5000000000000001,1.5,0.0,1.0,
+    1.0,1.0,0.0,1.0,
+    0.5000000000000001,1.5,0.5,1.0,
+    1.0,1.0,0.5,1.0,
+    1.0,1.5,0.0,1.0,
+    1.0,1.5,0.5,1.0
+    };
+
+// Indices of nodes comprising each triangle
+int connectivity [44][3] = {
+    0,1,2,
+    0,3,1,
+    0,2,4,
+    0,4,3,
+    2,5,4,
+    2,1,6,
+    2,6,7,
+    2,7,5,
+    1,8,6,
+    1,9,8,
+    1,3,9,
+    3,4,5,
+    3,5,10,
+    3,10,9,
+    5,7,11,
+    5,11,10,
+    6,8,12,
+    6,13,7,
+    6,12,13,
+    10,14,9,
+    10,11,15,
+    10,15,14,
+    8,16,12,
+    8,17,16,
+    8,9,17,
+    9,14,17,
+    12,16,18,
+    12,19,13,
+    12,18,19,
+    14,20,17,
+    14,15,21,
+    14,21,20,
+    16,20,18,
+    16,17,20,
+    18,22,19,
+    18,23,22,
+    18,20,23,
+    20,21,23,
+    7,13,15,
+    7,15,11,
+    13,19,21,
+    13,21,15,
+    19,22,23,
+    19,23,21
+};
+
+std::unordered_map<int, std::array<double, 3>> coords_map;
+    for (int i=0; i < 24; i++) {
+        std::array <double,3> temp{};
+        for (int j=0; j < 3; j++) {
+            //std::cout<<coords[i][j] << " ";
+            temp[j] = coords[i][j];
+        }
+        coords_map[i] = temp;
+    }
 
     EiMatrixDd node_coords_test(44,9);
     for (int i=0; i < 44; i++) {
@@ -433,10 +558,31 @@ int main() {
     //node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
     //intersect_plane(test_ray, node_coords_test);
 
+    //std::chrono::high_resolution_clock::time_point begin1 = std::chrono::high_resolution_clock::now();
+    //render_ppm_image(test_camera);
+    //std::chrono::high_resolution_clock::time_point end1 = std::chrono::high_resolution_clock::now();
+    //std::cout << "runtime: " << std::chrono::duration_cast<std::chrono::milliseconds> (end1 - begin1) << std::endl;
+
+
+    std::chrono::high_resolution_clock::time_point begin2 = std::chrono::high_resolution_clock::now();
+    edgesFromMap(connectivity, coords_map);
+    std::chrono::high_resolution_clock::time_point end2 = std::chrono::high_resolution_clock::now();
+    std::cout << "runtime edgesfromMap: " << std::chrono::duration_cast<std::chrono::nanoseconds> (end2 - begin2) << std::endl;
+
+    std::chrono::high_resolution_clock::time_point begin3 = std::chrono::high_resolution_clock::now();
+    edgesFromFlatArray(node_coords_arr);
+    std::chrono::high_resolution_clock::time_point end3 = std::chrono::high_resolution_clock::now();
+    std::cout << "runtime edgesfromFlatArray: " << std::chrono::duration_cast<std::chrono::nanoseconds> (end3 - begin3) << std::endl;
+
     std::chrono::high_resolution_clock::time_point begin1 = std::chrono::high_resolution_clock::now();
-    render_ppm_image(test_camera);
+    edgesFromArray(connectivity, coords);
     std::chrono::high_resolution_clock::time_point end1 = std::chrono::high_resolution_clock::now();
-    std::cout << "runtime: " << std::chrono::duration_cast<std::chrono::milliseconds> (end1 - begin1) << std::endl;
+    std::cout << "runtime edgesfromArray: " << std::chrono::duration_cast<std::chrono::nanoseconds> (end1 - begin1) << std::endl;
+
+
+
+
+
 
     return 0;
 }
