@@ -8,10 +8,16 @@
 #include <iostream>
 #include <vector>
 #include <chrono>
+#include <random>
 
 inline double degreesToRadians(double angleDeg) {
     // Converts degrees to radians. Used to convert the angle of vertical view.
     return angleDeg * M_PI / 180;
+}
+inline double random_double() {
+    static std::uniform_real_distribution<double> distribution(0.0, 1.0);
+    static std::mt19937 generator;
+    return distribution(generator);
 }
 
 // Define aliases for the vectors and matrices from Eigen library.
@@ -29,7 +35,7 @@ using EiArrayD3d = Eigen::Array<double, Eigen::Dynamic, 3, Eigen::RowMajor>; // 
 double aspect_ratio = 16.0/9.0;
 unsigned short image_width = 400; // px
 unsigned short image_height = static_cast<unsigned short>(image_width / aspect_ratio); // px
-unsigned short number_of_samples; // For anti-aliasing. Really don't expect we'll need more than a short
+unsigned short number_of_samples = 50; // For anti-aliasing. Really don't expect we'll need more than a short
 
 //////////////////////////////////// CAMERA
 class Camera {
@@ -127,48 +133,7 @@ inline void set_face_normal(const Ray &ray, EiVector3d &normal_surface) {
 }
 
 //////////////////////////////////// CROSS-PRODUCT
-/*
-EiVectorD3d cross_rowwise(const EiVectorD3d &mat1, const EiVectorD3d &mat2) {
-    // Row-wise cross product for 2 matrices (i.e., treating each row as a vector).
-    // Also works for multiplying a matrix with a row vector, so the input order determines the multiplication order. Happy days.
-    // Written because this otherwise can't be a one-liner like in NumPy - Eigen's cross product works only for vector types.
-    if (mat1.cols() != 3 || mat2.cols() != 3) {
-        std::cerr << "Error: matrices need to have exactly 3 columns to find the cross product" << std::endl;
-        return {};
-    }
-    long long number_of_rows = mat1.rows(); // number of rows. Long long to match the type from Eigen::Index
-    if (number_of_rows  != mat2.rows()) {
-        if (number_of_rows == 1) {
-            // Matrix 1 is a row vector, so we just won't iterate over it
-            EiVectorD3d cross_product_result(mat2.rows(), 3);
-            EiVector3d v1_const = mat1.row(0); // It should only have one row anyway, but just to be sure
-            for (int i = 0; i < mat2.rows(); i++) {
-                cross_product_result.row(i) = v1_const.cross(mat2.row(i));
-            }
-            return cross_product_result;
-        }
-        else if (mat2.rows() == 1) {
-            // Matrix 2 is a row vector, so we just won't iterate over it
-            EiVectorD3d cross_product_result(number_of_rows, 3);
-            EiVector3d v2_const = mat2.row(0);
-            for (int i = 0; i < number_of_rows; i++) {
-                cross_product_result.row(i) = mat1.row(i).cross(v2_const);
-            }
-            return cross_product_result;
-        }
-        else {
-            // Dimensional mismatch, and neither matrix is a row vector, so can't compute cross product
-            std::cerr << "Error: cross product of vectors of different sizes" << std::endl;
-            return {};
-        }
-    }
-    EiVectorD3d cross_product_result(number_of_rows, 3);
-    for (int i = 0; i < number_of_rows; i++) {
-        cross_product_result.row(i) = mat1.row(i).cross(mat2.row(i));
-    }
-    return cross_product_result;
-}
-*/
+
 EiVectorD3d cross_rowwise(const EiVectorD3d &mat1, const EiVectorD3d &mat2) {
     // Row-wise cross product for 2 matrices (i.e., treating each row as a vector).
     // Also works for multiplying a matrix with a row vector, so the input order determines the multiplication order. Happy days.
@@ -213,7 +178,7 @@ IntersectionOutput intersect_plane(const Ray &ray, const double (&node_coords_ar
     EiArrayD3d p_vec, q_vec, t_vec; // shape (faces, 3) each
     EiVectorD3d plane_normals; // Shape (faces, 3)
     Eigen::Array<double, Eigen::Dynamic, 1> determinants, inverse_determinants; //shape (faces, 1) each
-    Eigen::Array<double, Eigen::Dynamic, 1> barycentric_u, barycentric_v, barycentric_w, t_values; // shape (faces, 1) each
+    Eigen::Array<double, Eigen::Dynamic, 1> barycentric_u, barycentric_v, t_values; // shape (faces, 1) each
     Eigen::ArrayXXd barycentric_coordinates(number_of_elements, 3); // shape (faces, 3) Array so we can do things element-wise with those
     /// Define default negative output if there is no intersection
     IntersectionOutput negative_output {
@@ -274,10 +239,9 @@ IntersectionOutput intersect_plane(const Ray &ray, const double (&node_coords_ar
         }
     }
     //counter_pass++;
-    barycentric_w = 1.0 - barycentric_u - barycentric_v; // Comes out the same as Python
     barycentric_coordinates.col(0) = barycentric_u;
     barycentric_coordinates.col(1) = barycentric_v;
-    barycentric_coordinates.col(2) = barycentric_w;
+    barycentric_coordinates.col(2) = 1.0 - barycentric_u - barycentric_v; // barycentric_w
     return IntersectionOutput{barycentric_coordinates, plane_normals, t_values};
 
 }
@@ -361,7 +325,10 @@ EiVector3d return_ray_color(const Ray &ray) {
     }
     // Blue sky gradient
     double a = 0.5 * (ray.direction.normalized()(1) + 1.0);
-    EiVector3d color = (1.0 - a) * (EiVector3d() << 1.0, 1.0, 1.0).finished() + a * (EiVector3d() << 0.5, 0.7, 1.0).finished();
+    static EiVector3d white, blue;
+    white << 1.0, 1.0, 1.0;
+    blue << 0.5, 0.7, 1.0;
+    EiVector3d color = (1.0 - a) * white + a * blue;
     return color;
 }
 
@@ -373,16 +340,18 @@ void render_ppm_image(const Camera& camera1) {
     for (int j = 0; j < image_height; j++) {
        std::clog << "\rScanlines remaining: " << (image_height - j) << ' ' << std::flush;
         for (int i = 0; i < image_width; i++) {
-            //EiVector3d pixel_color = EiVector3d::Zero(); // for anti-aliasing later
-            EiVector3d pixel_center = camera1.pixel_00_center + i * camera1.matrix_pixel_spacing.row(0) + j * camera1.matrix_pixel_spacing.row(1);
-            EiVector3d pixel_color = EiVector3d::Zero(); // update this
-            EiVector3d ray_direction = pixel_center - camera1.camera_center;
-            Ray current_ray {camera1.camera_center, ray_direction};
-            pixel_color = return_ray_color(current_ray); // write this
+            EiVector3d pixel_color = EiVector3d::Zero();
+            for (int k = 0; k < number_of_samples; k++) {
+                double offset [2] = {random_double() - 0.5, random_double() - 0.5};
+                //EiVector3d pixel_center = camera1.pixel_00_center + i * camera1.matrix_pixel_spacing.row(0) + j * camera1.matrix_pixel_spacing.row(1);
+                EiVector3d pixel_sample = camera1.pixel_00_center + (i + offset[0]) * camera1.matrix_pixel_spacing.row(0) + (j + offset[1]) * camera1.matrix_pixel_spacing.row(1);
+                EiVector3d ray_direction = pixel_sample - camera1.camera_center;
+                Ray current_ray {camera1.camera_center, ray_direction};
+                pixel_color += return_ray_color(current_ray);
+            }
             // Get the RGB components of the pixel color (in [0,1] range) and convert them to a single-channel grayscale
-
             double gray = 0.2126 * pixel_color[0] + 0.7152 * pixel_color[1] + 0.0722 * pixel_color[2];
-            int gray_byte = int(gray * 255.99);
+            int gray_byte = int(gray/number_of_samples * 255.99);
             image_file << gray_byte << ' ' << gray_byte << ' ' << gray_byte << '\n';
         }
     }
@@ -446,10 +415,6 @@ int main() {
 1.0,1.0,0.0,1.0,1.5,0.0,1.0,1.5,0.5,
 1.0,1.0,0.0,1.0,1.5,0.5,1.0,1.0,0.5,
     };
-
-    //edgeArray(node_coords_arr);
-
-//std::cout<<"main: " << &node_coords_arr << std::endl;
 
     EiMatrixDd node_coords_test(44,9);
     for (int i=0; i < 44; i++) {
