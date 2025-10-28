@@ -14,6 +14,7 @@ inline double degreesToRadians(double angleDeg) {
     // Converts degrees to radians. Used to convert the angle of vertical view.
     return angleDeg * M_PI / 180;
 }
+
 inline double random_double() {
     static std::uniform_real_distribution<double> distribution(0.0, 1.0);
     static std::mt19937 generator;
@@ -35,7 +36,7 @@ using EiArrayD3d = Eigen::Array<double, Eigen::Dynamic, 3, Eigen::RowMajor>; // 
 double aspect_ratio = 16.0/9.0;
 unsigned short image_width = 400; // px
 unsigned short image_height = static_cast<unsigned short>(image_width / aspect_ratio); // px
-unsigned short number_of_samples = 5; // For anti-aliasing. Really don't expect we'll need more than a short
+unsigned short number_of_samples = 2; // For anti-aliasing. Really don't expect we'll need more than a short
 
 //////////////////////////////////// CAMERA
 class Camera {
@@ -157,21 +158,14 @@ struct IntersectionOutput {
     Eigen::Array<double, Eigen::Dynamic, 1>  t_values; // size elements x 1
 };
 
-int counter_con1 = 0;
-int counter_con2 = 0;
-int counter_pass = 0;
-int total_counter = 0;
-
 //IntersectionOutput intersect_plane(const Ray &ray, const double (&node_coords_arr)[44][9]) {
 IntersectionOutput intersect_plane(const Ray &ray, const std::vector<std::array<int,3>> &connectivity, const std::vector<std::array<double,3>> &node_coords) {
     // Declare everything on the top because else I get very confused
     long long number_of_elements = connectivity.size(); // number of triangles, will give us indices for some bits
-    //std::cout << number_of_elements << std::endl;
     // Ray data broadcasted to use in vectorised operations on matrices
     // This is faster than doing it in a loop
-    EiVectorD3d ray_directions = ray.direction.normalized().replicate(number_of_elements, 1);
+    EiVectorD3d ray_directions = ray.direction.replicate(number_of_elements, 1);
     EiArrayD3d ray_origins = ray.origin.replicate(number_of_elements, 1).array();
-
     // Edges
     EiMatrixDd edge0 (number_of_elements,3), nEdge2 (number_of_elements,3); // shape (faces, 3) each
     Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>  nodes0 (number_of_elements, 3);
@@ -187,7 +181,6 @@ IntersectionOutput intersect_plane(const Ray &ray, const std::vector<std::array<
         EiVectorD3d::Zero(number_of_elements, 3),
         Eigen::Vector<double, Eigen::Dynamic>::Constant(number_of_elements, 1, std::numeric_limits<double>::infinity())
     };
-
     // Calculations - edges and normals
     for (int i=0; i < number_of_elements; i++) {
         int node_0 = connectivity[i][0];
@@ -198,10 +191,9 @@ IntersectionOutput intersect_plane(const Ray &ray, const std::vector<std::array<
             edge0(i,j) = node_coords[node_1][j] - node_coords[node_0][j];
             nodes0(i,j) = node_coords[node_0][j];
             // Skip edge1 because it never gets used in the calculations anyway
-            nEdge2(i,j) = node_coords[node_0][j] - node_coords[node_2][j];
+            nEdge2(i,j) = node_coords[node_2][j] - node_coords[node_0][j];
         }
     }
-
     plane_normals = cross_rowwise(edge0, nEdge2); // not normalised!
     // Step 1: Quantities for the Moller Trumbore method
     p_vec = cross_rowwise(ray_directions, nEdge2); // Assigns a vector to an array variable, but Eigen automatically converts so long as the underlying sizes are correct at initialization
@@ -212,17 +204,14 @@ IntersectionOutput intersect_plane(const Ray &ray, const std::vector<std::array<
     Eigen::Array<bool, Eigen::Dynamic, Eigen::Dynamic> valid_mask = (determinants > 1e-6) && (determinants > 0);
     if (!valid_mask.any()) {
         //std::cout << "Condition 1 triggered" << std::endl;
-        //counter_con1++;
         return negative_output; // No intersection - return infinity
     }
-
     // Step 3: Test if ray is in front of the triangle
     inverse_determinants = determinants.inverse(); // Element-wise inverse. Correct
     t_vec = ray_origins - nodes0;
     barycentric_u = ((t_vec * p_vec).rowwise().sum()).array() * inverse_determinants; // comes out the same as benchmark
     valid_mask = valid_mask && (barycentric_u >= 0) && (barycentric_u <= 1);
     if (!valid_mask.any()) {
-        //counter_con2++;
         //std::cout << "Condition 2 triggered" << std::endl;
         return negative_output; // No intersection - return infinity
     }
@@ -242,19 +231,13 @@ IntersectionOutput intersect_plane(const Ray &ray, const std::vector<std::array<
             }
         }
     }
-    //counter_pass++;
     barycentric_coordinates.col(0) = barycentric_u;
     barycentric_coordinates.col(1) = barycentric_v;
     barycentric_coordinates.col(2) = 1.0 - barycentric_u - barycentric_v; // barycentric_w
     return IntersectionOutput{barycentric_coordinates, plane_normals, t_values};
-
 }
 
 //////////////////////////////////// COLOR RAY
-
-
-
-
 EiVector3d return_ray_color(const Ray &ray, const std::vector<std::array<int,3>> &connectivity, const std::vector<std::array<double,3>> &node_coords) {
 // Returns the color for a given ray. If the ray intersects an object, return colour. Otherwise, return blue sky gradient.
     //double node_coords_arr[2][9] = {1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0};
@@ -286,7 +269,7 @@ EiVector3d return_ray_color(const Ray &ray, const std::vector<std::array<int,3>>
         //return color
     }
     // Blue sky gradient
-    double a = 0.5 * (ray.direction.normalized()(1) + 1.0);
+    double a = 0.5 * (ray.direction(1) + 1.0);
     static EiVector3d white, blue;
     white << 1.0, 1.0, 1.0;
     blue << 0.5, 0.7, 1.0;
@@ -308,7 +291,7 @@ void render_ppm_image(const Camera& camera1, const std::vector<std::array<int,3>
                 //EiVector3d pixel_center = camera1.pixel_00_center + i * camera1.matrix_pixel_spacing.row(0) + j * camera1.matrix_pixel_spacing.row(1);
                 EiVector3d pixel_sample = camera1.pixel_00_center + (i + offset[0]) * camera1.matrix_pixel_spacing.row(0) + (j + offset[1]) * camera1.matrix_pixel_spacing.row(1);
                 EiVector3d ray_direction = pixel_sample - camera1.camera_center;
-                Ray current_ray {camera1.camera_center, ray_direction};
+                Ray current_ray {camera1.camera_center, ray_direction.normalized()};
                 pixel_color += return_ray_color(current_ray, connectivity, node_coords);
             }
             // Get the RGB components of the pixel color (in [0,1] range) and convert them to a single-channel grayscale
@@ -324,50 +307,10 @@ void render_ppm_image(const Camera& camera1, const std::vector<std::array<int,3>
     //std::cout << "rows" << sizeof edge0_arr / sizeof edge0_arr[0] << std::endl;
     //std::cout << "cols" << sizeof edge0_arr[0] / sizeof(double) << std::endl;
 
-void edgesFromMap(const int (&connectivity)[44][3], std::unordered_map<int, std::array<double, 3>> (&coords_map)) {
-    EiMatrixDd edge0 (44,3), nEdge2 (44,3); // shape (faces, 3) each
-    for (int i = 0; i < 44; i++) {
-        int node_0 = connectivity[i][0];
-        int node_1 = connectivity[i][1];
-        int node_2 = connectivity[i][2];
-        for (int j = 0; j < 3; j++) {
-            edge0(i,j) = coords_map[node_1][j] - coords_map[node_0][j];
-            nEdge2(i,j) = coords_map[node_0][j] - coords_map[node_2][j];
-        }
-    }
-
-}
-
-void edgesFromArray(const int (&connectivity)[44][3], const double (&coords)[24][4]) {
-    EiMatrixDd edge0 (44,3), nEdge2 (44,3); // shape (faces, 3) each
-    for (int i = 0; i < 44; i++) {
-        int node_0 = connectivity[i][0];
-        int node_1 = connectivity[i][1];
-        int node_2 = connectivity[i][2];
-        for (int j = 0; j < 3; j++) {
-            edge0(i,j) = coords[node_1][j] - coords[node_0][j];
-            nEdge2(i,j) = coords[node_0][j] - coords[node_2][j];
-        }
-    }
-}
-
-void edgesFromFlatArray(const double(&node_coords_arr)[44][9]) {
-    EiMatrixDd edge0 (44,3), nEdge2 (44,3); // shape (faces, 3) each
-    for (int i=0; i < 44; i++) {
-        for (int j=0; j < 3; j++) {
-            edge0(i,j) = node_coords_arr[i][j+3] - node_coords_arr[i][j];
-            // Skip edge1 because it never gets used in the calculations anyway
-            nEdge2(i,j) = node_coords_arr[i][j+6] - node_coords_arr[i][j];
-        }
-    }
-}
-
 int main() {
     //Camera test_camera{EiVector3d(0, 1, 1), EiVector3d(0, 0, -1), 90};
     Camera test_camera{EiVector3d(-0.5, 1.1, 1.1), EiVector3d(0, 0, -1), 90};
     // Mesh from simdata. Copied by force for now.
-    unsigned long long number_of_elements = 44;
-    unsigned long long number_of_coords = 9;
 
     double node_coords_arr[44][9] = {
         0.0,0.0,0.0,0.0,0.49999999999999983,0.0,0.49999999999999994,0.0,0.0,
@@ -417,31 +360,31 @@ int main() {
     };
 
 // Nodal coords; 4, but 4th isn't of interest
-double coords[24][4] = {
-        0.0,0.0,0.0,1.0,
-    0.0,0.49999999999999983,0.0,1.0,
-    0.49999999999999994,0.0,0.0,1.0,
-    0.0,0.49999999999999983,0.5,1.0,
-    0.0,0.0,0.5,1.0,
-    0.49999999999999994,0.0,0.5,1.0,
-    0.5,0.49999999999999983,0.0,1.0,
-    1.0,0.0,0.0,1.0,
-    0.0,1.0,0.0,1.0,
-    0.0,1.0,0.5,1.0,
-    0.5,0.49999999999999983,0.5,1.0,
-    1.0,0.0,0.5,1.0,
-    0.5,1.0,0.0,1.0,
-    1.0,0.49999999999999994,0.0,1.0,
-    0.5,1.0,0.5,1.0,
-    1.0,0.49999999999999994,0.5,1.0,
-    0.0,1.5,0.0,1.0,
-    0.0,1.5,0.5,1.0,
-    0.5000000000000001,1.5,0.0,1.0,
-    1.0,1.0,0.0,1.0,
-    0.5000000000000001,1.5,0.5,1.0,
-    1.0,1.0,0.5,1.0,
-    1.0,1.5,0.0,1.0,
-    1.0,1.5,0.5,1.0
+double coords[24][3] = {
+        0.0,0.0,0.0,
+    0.0,0.49999999999999983,0.0,
+    0.49999999999999994,0.0,0.0,
+    0.0,0.49999999999999983,0.5,
+    0.0,0.0,0.5,
+    0.49999999999999994,0.0,0.5,
+    0.5,0.49999999999999983,0.0,
+    1.0,0.0,0.0,
+    0.0,1.0,0.0,
+    0.0,1.0,0.5,
+    0.5,0.49999999999999983,0.5,
+    1.0,0.0,0.5,
+    0.5,1.0,0.0,
+    1.0,0.49999999999999994,0.0,
+    0.5,1.0,0.5,
+    1.0,0.49999999999999994,0.5,
+    0.0,1.5,0.0,
+    0.0,1.5,0.5,
+    0.5000000000000001,1.5,0.0,
+    1.0,1.0,0.0,
+    0.5000000000000001,1.5,0.5,
+    1.0,1.0,0.5,
+    1.0,1.5,0.0,
+    1.0,1.5,0.5
     };
 
 // Indices of nodes comprising each triangle
@@ -508,7 +451,26 @@ int connectivity [44][3] = {
         }
         node_coords_vec.push_back(temp_arr2);
     }
-
+/*
+    long long number_of_elements = connectivity_vec.size();
+    EiMatrixDd edge0 (number_of_elements,3), nEdge2 (number_of_elements,3); // shape (faces, 3) each
+    Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>  nodes0 (number_of_elements, 3);
+    for (int i=0; i < number_of_elements; i++) {
+        int node_0 = connectivity_vec[i][0];
+        int node_1 = connectivity_vec[i][1];
+        int node_2 = connectivity_vec[i][2];
+        for (int j=0; j < 3; j++) {
+            //std::cout<<node_coords_arr[i][j] << " ";
+            edge0(i,j) = node_coords_vec[node_1][j] - node_coords_vec[node_0][j];
+            nodes0(i,j) = node_coords_vec[node_0][j];
+            // Skip edge1 because it never gets used in the calculations anyway
+            nEdge2(i,j) = node_coords_vec[node_2][j] - node_coords_vec[node_0][j];
+        }
+    }
+    //std::cout << "edge 0: " << edge0 << std::endl;
+    std::cout << "nEdge2: " << nEdge2 << std::endl;
+    //::cout << "nodes0:" << nodes0 << std::endl;
+*/
     //std::cout << node_coords_test <<std::endl;
     //Camera camera1;
     // Sample data for testing
