@@ -12,7 +12,7 @@
 double aspect_ratio = 16.0/9.0;
 unsigned short image_width = 400; // px
 unsigned short image_height = static_cast<unsigned short>(image_width / aspect_ratio); // px
-unsigned short number_of_samples = 1; // For anti-aliasing. Really don't expect we'll need more than a short
+unsigned short number_of_samples = 50; // For anti-aliasing. Really don't expect we'll need more than a short
 
 
     //std::cout << "rows" << sizeof edge0_arr / sizeof edge0_arr[0] << std::endl;
@@ -198,7 +198,3 @@ int connectivity [44][3] = {
 
     return 0;
 }
-
-
-
-
