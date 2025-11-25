@@ -1,6 +1,11 @@
 #include <iostream>
 #include <limits>
 #include "../ray_intersection.h"
+#include <atomic>
+
+// Global variables for performance tests
+extern std::atomic<uint64_t> num_intersection_tests;
+extern std::atomic<uint64_t> num_intersections_found;
 
 EiVectorD3d cross_rowwise(const EiVectorD3d &mat1, const EiVectorD3d &mat2) {
     // Row-wise cross product for 2 matrices (i.e., treating each row as a vector).
@@ -18,11 +23,12 @@ EiVectorD3d cross_rowwise(const EiVectorD3d &mat1, const EiVectorD3d &mat2) {
     return cross_product_result;
 }
 
+
 IntersectionOutput intersect_plane(const Ray &ray,
                                    const std::vector<std::array<int,3>> &connectivity,
                                    const std::vector<std::array<double,3>> &node_coords) {
-
     long long number_of_elements = connectivity.size(); // number of triangles, will give us indices for some bits
+    num_intersection_tests++;
     // Ray data broadcasted to use in vectorised operations on matrices
     // This is faster than doing it in a loop
     EiVectorD3d ray_directions = ray.direction.replicate(number_of_elements, 1);
@@ -93,5 +99,6 @@ IntersectionOutput intersect_plane(const Ray &ray,
     barycentric_coordinates.col(0) = barycentric_u;
     barycentric_coordinates.col(1) = barycentric_v;
     barycentric_coordinates.col(2) = 1.0 - barycentric_u - barycentric_v; // barycentric_w
+    num_intersections_found++;
     return IntersectionOutput{barycentric_coordinates, plane_normals, t_values};
 }

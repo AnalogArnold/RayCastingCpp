@@ -6,17 +6,20 @@
 #include "eigen_types.h"
 #include "camera.h"
 #include "renderer.h"
+#include <atomic>
 
 //////////////////////////////////// INPUT
 double aspect_ratio = 16.0/9.0;
 unsigned short image_width = 400; // px
 unsigned short image_height = static_cast<unsigned short>(image_width / aspect_ratio); // px
-unsigned short number_of_samples = 1; // For anti-aliasing. Really don't expect we'll need more than a short
-
-
+unsigned short number_of_samples = 50; // For anti-aliasing. Really don't expect we'll need more than a short
     //std::cout << "rows" << sizeof edge0_arr / sizeof edge0_arr[0] << std::endl;
     //std::cout << "cols" << sizeof edge0_arr[0] / sizeof(double) << std::endl;
 
+// Variables for performance tests
+std::atomic<uint64_t> num_intersection_tests = 0;
+std::atomic<uint64_t> num_intersections_found = 0;
+std::atomic<uint64_t> num_primary_rays = 0;
 
 // Function that would receive the data from Pybind
 void render_scene(const std::vector<std::vector<std::array<int,3>>> &scene_connectivity,
@@ -198,19 +201,11 @@ int connectivity [44][3] = {
     std::chrono::high_resolution_clock::time_point begin1 = std::chrono::high_resolution_clock::now();
     render_scene(scene_connectivity, scene_coords, scene_face_colors, cameras);
     std::chrono::high_resolution_clock::time_point end1 = std::chrono::high_resolution_clock::now();
-    std::cout << "runtime: " << std::chrono::duration_cast<std::chrono::milliseconds> (end1 - begin1) << std::endl;
+    std::cout << "Runtime: " << std::chrono::duration_cast<std::chrono::milliseconds> (end1 - begin1) << std::endl;
+    std::cout << "Number of primary rays: " << num_primary_rays << std::endl;
+    std::cout << "Number of intersection tests: " << num_intersection_tests << std::endl;
+    std::cout << "Number of intersections found: " << num_intersections_found << std::endl;
 
-/* OpenMP tests
-    int i;
-    int threadID = 0;
-#pragma omp parallel for private(i, threadID)
-    for(i = 0; i < 16; i++ )
-    {        threadID = omp_get_thread_num();
-#pragma omp critical
-        {
-        printf("Thread %d reporting\n", threadID);
-        }    }
-*/
     return 0;
 }
 

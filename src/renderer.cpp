@@ -4,6 +4,8 @@
 #include "../math_utils.h"
 #include <fstream>
 #include <iostream>
+#include <omp.h>
+#include <atomic>
 
 // Global rendering parameters
 extern unsigned short image_width;
@@ -11,6 +13,8 @@ extern unsigned short image_height;
 extern unsigned short number_of_samples;
 extern double aspect_ratio;
 
+// Global variables for performance tests
+extern std::atomic<uint64_t> num_primary_rays;
 
 inline EiVector3d get_face_color(Eigen::Index minRowIndex,
     const std::vector<std::array<double,3>> &face_colors) {
@@ -82,6 +86,7 @@ void render_ppm_image(const Camera& camera1,
                                          (i + offset[0]) * camera1.matrix_pixel_spacing.row(0) +
                                          (j + offset[1]) * camera1.matrix_pixel_spacing.row(1);
                 EiVector3d ray_direction = pixel_sample - camera1.camera_center;
+                num_primary_rays ++;
                 Ray current_ray {camera1.camera_center, ray_direction.normalized()};
                 pixel_color += return_ray_color(current_ray, scene_connectivity, scene_coords, scene_face_colors);
             }
