@@ -10,6 +10,7 @@ struct HitRecord {
     EiVector3d point_intersection {EiVector3d::Zero()};
     EiVector3d normal_surface {EiVector3d::Zero()};
     EiVector3d barycentric_coordinates {EiVector3d::Zero()};
+    EiVector3d face_color{ EiVector3d::Zero() };
 };
 
 inline void set_face_normal(const Ray &ray, EiVector3d &normal_surface) {

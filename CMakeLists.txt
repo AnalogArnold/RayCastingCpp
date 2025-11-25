@@ -15,3 +15,14 @@ add_executable(RayCastingCpp main.cpp
         src/ray_intersection.cpp
         renderer.h
         src/renderer.cpp)
+
+find_package(OpenMP)
+if (OPENMP_FOUND)
+    target_link_libraries(RayCastingCpp PRIVATE "${OpenMP_CXX_FLAGS}")
+    target_compile_options(RayCastingCpp PRIVATE "${OpenMP_CXX_FLAGS}")
+    #set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+    #set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")    #set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")    #target_link_libraries(RayCastingCpp PRIVATE OpenMP::OpenMP_CXX)    message(STATUS "OpenMP_CXX_VERSION ${OpenMP_CXX_VERSION}")
+    message(STATUS "OpenMP_CXX_INCLUDE_DIRS ${OpenMP_CXX_INCLUDE_DIRS}")
+    message(STATUS "OpenMP_CXX_LIB_NAMES ${OpenMP_CXX_LIB_NAMES}")
+    message(STATUS "OpenMP_CXX_LIBRARIES ${OpenMP_CXX_LIBRARIES}")
+endif()

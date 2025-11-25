@@ -1,7 +1,6 @@
 #include <fstream>
 #include <iostream>
 #include <array>
-#include <iostream>
 #include <vector>
 #include <chrono>
 #include "eigen_types.h"
@@ -12,66 +11,44 @@
 double aspect_ratio = 16.0/9.0;
 unsigned short image_width = 400; // px
 unsigned short image_height = static_cast<unsigned short>(image_width / aspect_ratio); // px
-unsigned short number_of_samples = 50; // For anti-aliasing. Really don't expect we'll need more than a short
+unsigned short number_of_samples = 1; // For anti-aliasing. Really don't expect we'll need more than a short
 
 
     //std::cout << "rows" << sizeof edge0_arr / sizeof edge0_arr[0] << std::endl;
     //std::cout << "cols" << sizeof edge0_arr[0] / sizeof(double) << std::endl;
 
+
+// Function that would receive the data from Pybind
+void render_scene(const std::vector<std::vector<std::array<int,3>>> &scene_connectivity,
+    const std::vector<std::vector<std::array<double,3>>> &scene_coords,
+    const std::vector<std::vector<std::array<double,3>>> &scene_face_colors,
+    const std::vector<Camera> &cameras) {
+
+    for (const Camera &camera : cameras) {
+        render_ppm_image(camera, scene_connectivity, scene_coords, scene_face_colors);
+    }
+}
+
 int main() {
-    //Camera test_camera{EiVector3d(0, 1, 1), EiVector3d(0, 0, -1), 90};
-    Camera test_camera{EiVector3d(-0.5, 1.1, 1.1), EiVector3d(0, 0, -1), 90};
-    // Mesh from simdata. Copied by force for now.
 
-    double node_coords_arr[44][9] = {
-        0.0,0.0,0.0,0.0,0.49999999999999983,0.0,0.49999999999999994,0.0,0.0,
-0.0,0.0,0.0,0.0,0.49999999999999983,0.5,0.0,0.49999999999999983,0.0,
-0.0,0.0,0.0,0.49999999999999994,0.0,0.0,0.0,0.0,0.5,
-0.0,0.0,0.0,0.0,0.0,0.5,0.0,0.49999999999999983,0.5,
-0.49999999999999994,0.0,0.0,0.49999999999999994,0.0,0.5,0.0,0.0,0.5,
-0.49999999999999994,0.0,0.0,0.0,0.49999999999999983,0.0,0.5,0.49999999999999983,0.0,
-0.49999999999999994,0.0,0.0,0.5,0.49999999999999983,0.0,1.0,0.0,0.0,
-0.49999999999999994,0.0,0.0,1.0,0.0,0.0,0.49999999999999994,0.0,0.5,
-0.0,0.49999999999999983,0.0,0.0,1.0,0.0,0.5,0.49999999999999983,0.0,
-0.0,0.49999999999999983,0.0,0.0,1.0,0.5,0.0,1.0,0.0,
-0.0,0.49999999999999983,0.0,0.0,0.49999999999999983,0.5,0.0,1.0,0.5,
-0.0,0.49999999999999983,0.5,0.0,0.0,0.5,0.49999999999999994,0.0,0.5,
-0.0,0.49999999999999983,0.5,0.49999999999999994,0.0,0.5,0.5,0.49999999999999983,0.5,
-0.0,0.49999999999999983,0.5,0.5,0.49999999999999983,0.5,0.0,1.0,0.5,
-0.49999999999999994,0.0,0.5,1.0,0.0,0.0,1.0,0.0,0.5,
-0.49999999999999994,0.0,0.5,1.0,0.0,0.5,0.5,0.49999999999999983,0.5,
-0.5,0.49999999999999983,0.0,0.0,1.0,0.0,0.5,1.0,0.0,
-0.5,0.49999999999999983,0.0,1.0,0.49999999999999994,0.0,1.0,0.0,0.0,
-0.5,0.49999999999999983,0.0,0.5,1.0,0.0,1.0,0.49999999999999994,0.0,
-0.5,0.49999999999999983,0.5,0.5,1.0,0.5,0.0,1.0,0.5,
-0.5,0.49999999999999983,0.5,1.0,0.0,0.5,1.0,0.49999999999999994,0.5,
-0.5,0.49999999999999983,0.5,1.0,0.49999999999999994,0.5,0.5,1.0,0.5,
-0.0,1.0,0.0,0.0,1.5,0.0,0.5,1.0,0.0,
-0.0,1.0,0.0,0.0,1.5,0.5,0.0,1.5,0.0,
-0.0,1.0,0.0,0.0,1.0,0.5,0.0,1.5,0.5,
-0.0,1.0,0.5,0.5,1.0,0.5,0.0,1.5,0.5,
-0.5,1.0,0.0,0.0,1.5,0.0,0.5000000000000001,1.5,0.0,
-0.5,1.0,0.0,1.0,1.0,0.0,1.0,0.49999999999999994,0.0,
-0.5,1.0,0.0,0.5000000000000001,1.5,0.0,1.0,1.0,0.0,
-0.5,1.0,0.5,0.5000000000000001,1.5,0.5,0.0,1.5,0.5,
-0.5,1.0,0.5,1.0,0.49999999999999994,0.5,1.0,1.0,0.5,
-0.5,1.0,0.5,1.0,1.0,0.5,0.5000000000000001,1.5,0.5,
-0.0,1.5,0.0,0.5000000000000001,1.5,0.5,0.5000000000000001,1.5,0.0,
-0.0,1.5,0.0,0.0,1.5,0.5,0.5000000000000001,1.5,0.5,
-0.5000000000000001,1.5,0.0,1.0,1.5,0.0,1.0,1.0,0.0,
-0.5000000000000001,1.5,0.0,1.0,1.5,0.5,1.0,1.5,0.0,
-0.5000000000000001,1.5,0.0,0.5000000000000001,1.5,0.5,1.0,1.5,0.5,
-0.5000000000000001,1.5,0.5,1.0,1.0,0.5,1.0,1.5,0.5,
-1.0,0.0,0.0,1.0,0.49999999999999994,0.0,1.0,0.49999999999999994,0.5,
-1.0,0.0,0.0,1.0,0.49999999999999994,0.5,1.0,0.0,0.5,
-1.0,0.49999999999999994,0.0,1.0,1.0,0.0,1.0,1.0,0.5,
-1.0,0.49999999999999994,0.0,1.0,1.0,0.5,1.0,0.49999999999999994,0.5,
-1.0,1.0,0.0,1.0,1.5,0.0,1.0,1.5,0.5,
-1.0,1.0,0.0,1.0,1.5,0.5,1.0,1.0,0.5
-    };
+    // TEST DATA - as equivalent to what it looks like in Pybind as possible
+    std::vector<Camera> cameras; // Stores camera center, pixel_00_center and matrix_pixel_spacings from relevant data
+    std::vector<std::vector<std::array<int, 3>>> scene_connectivity;
+    std::vector<std::vector<std::array<double, 3>>> scene_coords;
+    std::vector<std::vector<std::array<double, 3>>> scene_face_colors;
 
-// Nodal coords; 4, but 4th isn't of interest
-double coords[24][3] = {
+    // TEST CAMERAS
+    //Camera test_camera1{EiVector3d(0, 1, 1), EiVector3d(0, 0, -1), 90};
+    // cameras.push_back(test_camera1);
+    Camera test_camera2{EiVector3d(-0.5, 1.1, 1.1), EiVector3d(0, 0, -1), 90};
+    cameras.push_back(test_camera2);
+
+    // TEST MESH FROM SIMDATA
+    std::vector<std::array<int,3>> mesh1_connectivity;
+    std::vector<std::array<double,3>> mesh1_coords;
+    std::vector<std::array<double,3>> mesh1_face_colors;
+    // Nodal coords; 4, but 4th isn't of interest
+    double coords[24][3] = {
         0.0,0.0,0.0,
     0.0,0.49999999999999983,0.0,
     0.49999999999999994,0.0,0.0,
@@ -145,14 +122,64 @@ int connectivity [44][3] = {
     19,22,23,
     19,23,21
 };
-    std::vector<std::array<int,3>> connectivity_vec;
-    std::vector<std::array<double,3>> node_coords_vec;
+    // Normalised values of displacement in y to get the colour for each face
+    double face_colors[44][3] = {
+        0.3378407528533183,0.3378407528533183,0.3378407528533183,
+    0.17465446093414858,0.17465446093414858,0.17465446093414858,
+    0.49999999999071704,0.49999999999071704,0.49999999999071704,
+    0.33681370807154737,0.33681370807154737,0.33681370807154737,
+    0.49999999999071704,0.49999999999071704,0.49999999999071704,
+    0.3231067213995538,0.3231067213995538,0.3231067213995538,
+    0.48526596853695253,0.48526596853695253,0.48526596853695253,
+    0.49999999999071704,0.49999999999071704,0.49999999999071704,
+    0.1564400547359814,0.1564400547359814,0.1564400547359814,
+    0.011479797359104616,0.011479797359104616,0.011479797359104616,
+    0.01496017210350721,0.01496017210350721,0.01496017210350721,
+    0.33681370807154726,0.33681370807154726,0.33681370807154726,
+    0.3293557566576631,0.3293557566576631,0.3293557566576631,
+    0.16966146782702177,0.16966146782702177,0.16966146782702177,
+    0.49999999999071704,0.49999999999071704,0.49999999999071704,
+    0.49254204857683287,0.49254204857683287,0.49254204857683287,
+    0.3260572532852093,0.3260572532852093,0.3260572532852093,
+    0.6449602573704004,0.6449602573704004,0.6449602573704004,
+    0.6524182087822296,0.6524182087822296,0.6524182087822296,
+    0.3475817912045913,0.3475817912045913,0.3475817912045913,
+    0.6592087152465939,0.6592087152465939,0.6592087152465939,
+    0.6739427467049937,0.6739427467049937,0.6739427467049937,
+    0.34079128473897385,0.34079128473897385,0.34079128473897385,
+    0.3333333333271447,0.3333333333271447,0.3333333333271447,
+    0.17363904449650336,0.17363904449650336,0.17363904449650336,
+    0.3550397426184755,0.3550397426184755,0.3550397426184755,
+    0.5074579514025462,0.5074579514025462,0.5074579514025462,
+    0.8303385321488467,0.8303385321488467,0.8303385321488467,
+    0.6706442433153988,0.6706442433153988,0.6706442433153988,
+    0.5147340314491169,0.5147340314491169,0.5147340314491169,
+    0.8435599452623938,0.8435599452623938,0.8435599452623938,
+    0.6768932785926328,0.6768932785926328,0.6768932785926328,
+    0.49999999999071704,0.49999999999071704,0.49999999999071704,
+    0.49999999999071704,0.49999999999071704,0.49999999999071704,
+    0.6631862919035698,0.6631862919035698,0.6631862919035698,
+    0.49999999999071704,0.49999999999071704,0.49999999999071704,
+    0.49999999999071704,0.49999999999071704,0.49999999999071704,
+    0.662159247134233,0.662159247134233,0.662159247134233,
+    0.826360955493926,0.826360955493926,0.826360955493926,
+    0.6666666666604781,0.6666666666604781,0.6666666666604781,
+    0.9850398278805338,0.9850398278805338,0.9850398278805338,
+    0.9885202026374419,0.9885202026374419,0.9885202026374419,
+    0.6631862919035698,0.6631862919035698,0.6631862919035698,
+    0.8253455390470857,0.8253455390470857,0.8253455390470857
+    };
+
+    // Stash the data inside vectors
     for (int i = 0; i < 44; i++) {
         std::array<int,3> temp_arr {};
+        std::array<double,3> temp_arr2 {};
         for (int j = 0; j < 3; j++) {
             temp_arr[j] = connectivity[i][j];
+            temp_arr2[j] = face_colors[i][j];
         }
-        connectivity_vec.push_back(temp_arr);
+        mesh1_connectivity.push_back(temp_arr);
+        mesh1_face_colors.push_back(temp_arr2);
     }
 
     for (int i = 0; i < 24; i++) {
@@ -160,41 +187,30 @@ int connectivity [44][3] = {
         for (int j = 0; j < 3; j++) {
             temp_arr2[j] = coords[i][j];
         }
-        node_coords_vec.push_back(temp_arr2);
+        mesh1_coords.push_back(temp_arr2);
     }
-/*
-    long long number_of_elements = connectivity_vec.size();
-    EiMatrixDd edge0 (number_of_elements,3), nEdge2 (number_of_elements,3); // shape (faces, 3) each
-    Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>  nodes0 (number_of_elements, 3);
-    for (int i=0; i < number_of_elements; i++) {
-        int node_0 = connectivity_vec[i][0];
-        int node_1 = connectivity_vec[i][1];
-        int node_2 = connectivity_vec[i][2];
-        for (int j=0; j < 3; j++) {
-            //std::cout<<node_coords_arr[i][j] << " ";
-            edge0(i,j) = node_coords_vec[node_1][j] - node_coords_vec[node_0][j];
-            nodes0(i,j) = node_coords_vec[node_0][j];
-            // Skip edge1 because it never gets used in the calculations anyway
-            nEdge2(i,j) = node_coords_vec[node_2][j] - node_coords_vec[node_0][j];
-        }
-    }
-    //std::cout << "edge 0: " << edge0 << std::endl;
-    std::cout << "nEdge2: " << nEdge2 << std::endl;
-    //::cout << "nodes0:" << nodes0 << std::endl;
-*/
-    //std::cout << node_coords_test <<std::endl;
-    //Camera camera1;
-    // Sample data for testing
-    //Ray test_ray{EiVector3d(-0.5, 1.1, 1.1), EiVector3d(4.132331920978222, -2.603127666416139, 1.1937133836332001), 0.0};
-    //EiMatrixDd node_coords_test(2,9);
-    //node_coords_test.row(0) << 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0;
-    //node_coords_test.row(1) <<  0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0;
-    //intersect_plane(test_ray, node_coords_test);
+    // Add to the scene vectors so we can work with multiple meshes
+    scene_connectivity.push_back(mesh1_connectivity);
+    scene_coords.push_back(mesh1_coords);
+    scene_face_colors.push_back(mesh1_face_colors);
 
+    // Runtime tests
     std::chrono::high_resolution_clock::time_point begin1 = std::chrono::high_resolution_clock::now();
-    render_ppm_image(test_camera, connectivity_vec, node_coords_vec);
+    render_scene(scene_connectivity, scene_coords, scene_face_colors, cameras);
     std::chrono::high_resolution_clock::time_point end1 = std::chrono::high_resolution_clock::now();
     std::cout << "runtime: " << std::chrono::duration_cast<std::chrono::milliseconds> (end1 - begin1) << std::endl;
 
+/* OpenMP tests
+    int i;
+    int threadID = 0;
+#pragma omp parallel for private(i, threadID)
+    for(i = 0; i < 16; i++ )
+    {        threadID = omp_get_thread_num();
+#pragma omp critical
+        {
+        printf("Thread %d reporting\n", threadID);
+        }    }
+*/
     return 0;
 }
+
