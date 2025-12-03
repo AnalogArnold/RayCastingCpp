@@ -75,6 +75,45 @@ inline EiVector3d compute_triangle_centroid_sing(const std::vector<std::array<in
 
 }
 
+// Bounding volume structure - axis-aligned bounding boxes (AABB)
+struct AABB {
+    double corner_min[3]{};
+    double corner_max[3]{};
+
+    AABB() {
+        corner_min[0] = corner_min[1] = corner_min[2] = std::numeric_limits<double>::infinity();
+        corner_max[0] = corner_max[1] = corner_max[2] = -std::numeric_limits<double>::infinity();
+    }
+    void expand_to_include_point(const EiVector3d& point) {
+        for (int i = 0; i < 3; ++i){
+            if (point(i) < corner_min[i]) corner_min[i] = point(i);
+            if (point(i) > corner_max[i]) corner_max[i] = point(i);
+        }
+    }
+    void expand_to_include_triangle_node(const std::array<double,3>& triangle_coords) {
+        for (int i = 0; i < 3; ++i){
+
+            if (triangle_coords[i] < corner_min[i]) corner_min[i] = triangle_coords[i];
+            if (triangle_coords[i] > corner_max[i]) corner_max[i] = triangle_coords[i];
+        }
+    }
+    void expand_to_include_AABB(const AABB& other) {
+        for (int i = 0; i < 3; ++i){
+            if (other.corner_min[i] < corner_min[i]) corner_min[i] = other.corner_min[i];
+            if (other.corner_max[i] > corner_max[i]) corner_max[i] = other.corner_max[i];
+        }
+    }
+    inline double find_axis_extent(int axis) const {
+        return corner_max[axis] - corner_min[axis];
+    }
+    double find_surface_area() const {
+        double height = find_axis_extent(2);
+        double width = find_axis_extent(1);
+        double depth = find_axis_extent(0);
+        return 2 * (height * width + width * depth + height * depth);
+    }
+};
+
 int main() {
 
     // TEST DATA - as equivalent to what it looks like in Pybind as possible
@@ -240,15 +279,8 @@ int connectivity [44][3] = {
     scene_coords.push_back(mesh1_coords);
     scene_face_colors.push_back(mesh1_face_colors);
 
-
-    std::chrono::high_resolution_clock::time_point begin1 = std::chrono::high_resolution_clock::now();
-    compute_triangle_centroid(scene_connectivity, scene_coords);
-    std::chrono::high_resolution_clock::time_point end1 = std::chrono::high_resolution_clock::now();
-    std::cout << "Runtime all: " << std::chrono::duration_cast<std::chrono::nanoseconds> (end1 - begin1) << std::endl;
-
-    std::chrono::high_resolution_clock::time_point begin2 = std::chrono::high_resolution_clock::now();
     size_t num_meshes = scene_coords.size(); // Get number of meshes
-    std::vector<EiVector3d> centroids;
+    std::vector<AABB> aabbs;
     // Iterate over meshes in the scene
     for (size_t mesh_idx = 0; mesh_idx < num_meshes; ++mesh_idx) {
         const std::vector<std::array<int,3>> connectivity = scene_connectivity[mesh_idx];
@@ -256,11 +288,17 @@ int connectivity [44][3] = {
         long long number_of_elements = connectivity.size();
 
         for (int i=0; i < number_of_elements; i++) {
-            centroids.push_back(compute_triangle_centroid_sing(connectivity, node_coords, i));
+            AABB temp;
+            for (int j =0; j < 3; j++){
+                int node = connectivity[i][j];
+                temp.expand_to_include_triangle_node(node_coords[node]);
+            }
+            std:: cout << "triangle number: " << i << std::endl;
+            std::cout << "min: " << temp.corner_min[0] << " " << temp.corner_min[1] << " " << temp.corner_min[2] << std::endl;
+            std::cout << "max: " << temp.corner_max[0] << " " << temp.corner_max[1] << " " << temp.corner_max[2] << std::endl;
         }
     }
-    std::chrono::high_resolution_clock::time_point end2 = std::chrono::high_resolution_clock::now();
-    std::cout << "Runtime sep: " << std::chrono::duration_cast<std::chrono::nanoseconds> (end2 - begin2) << std::endl;
+
     // Runtime tests
     //std::chrono::high_resolution_clock::time_point begin1 = std::chrono::high_resolution_clock::now();
     //render_scene(scene_connectivity, scene_coords, scene_face_colors, cameras);
