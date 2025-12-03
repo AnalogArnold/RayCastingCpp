@@ -14,7 +14,8 @@ add_executable(RayCastingCpp main.cpp
         ray_intersection.h
         src/ray_intersection.cpp
         renderer.h
-        src/renderer.cpp)
+        src/renderer.cpp
+        src/bvhtest.cpp)
 
 find_package(OpenMP)
 if (OPENMP_FOUND)

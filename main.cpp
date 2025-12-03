@@ -8,6 +8,7 @@
 #include "renderer.h"
 #include <atomic>
 
+
 //////////////////////////////////// INPUT
 double aspect_ratio = 16.0/9.0;
 unsigned short image_width = 400; // px
@@ -30,6 +31,48 @@ void render_scene(const std::vector<std::vector<std::array<int,3>>> &scene_conne
     for (const Camera &camera : cameras) {
         render_ppm_image(camera, scene_connectivity, scene_coords, scene_face_colors);
     }
+}
+
+
+inline void compute_triangle_centroid(const std::vector<std::vector<std::array<int,3>>> &scene_connectivity,
+    const std::vector<std::vector<std::array<double,3>>> &scene_coords) {
+    // Find the centroid of a triangle.
+    // Might be worth rewriting this to take in the full array of triangles rather than just accepting one and
+    // change the output type.
+
+    size_t num_meshes = scene_coords.size(); // Get number of meshes
+    std::vector<EiVector3d> centroids;
+    // Iterate over meshes in the scene
+    for (size_t mesh_idx = 0; mesh_idx < num_meshes; ++mesh_idx) {
+        const std::vector<std::array<int,3>> connectivity = scene_connectivity[mesh_idx];
+        const std::vector<std::array<double,3>> node_coords = scene_coords[mesh_idx];
+        long long number_of_elements = connectivity.size();
+
+        for (int i=0; i < number_of_elements; i++) {
+            int node_0 = connectivity[i][0];
+            int node_1 = connectivity[i][1];
+            int node_2 = connectivity[i][2];
+            double centroid_x = (node_coords[node_0][0] + node_coords[node_1][0] + node_coords[node_2][0])/3.0;
+            double centroid_y = (node_coords[node_0][1] + node_coords[node_1][1] + node_coords[node_2][1])/3.0;
+            double centroid_z = (node_coords[node_0][2] + node_coords[node_1][2] + node_coords[node_2][2])/3.0;
+            centroids.push_back(EiVector3d(centroid_x, centroid_y, centroid_z));
+            //::cout << centroids[i] << std::endl;
+        }
+    }
+}
+
+inline EiVector3d compute_triangle_centroid_sing(const std::vector<std::array<int,3>> &connectivity,
+                                   const std::vector<std::array<double,3>> &node_coords,
+                                   const int mesh_id){
+
+    int node_0 = connectivity[mesh_id][0];
+    int node_1 = connectivity[mesh_id][1];
+    int node_2 = connectivity[mesh_id][2];
+    double centroid_x = (node_coords[node_0][0] + node_coords[node_1][0] + node_coords[node_2][0])/3.0;
+    double centroid_y = (node_coords[node_0][1] + node_coords[node_1][1] + node_coords[node_2][1])/3.0;
+    double centroid_z = (node_coords[node_0][2] + node_coords[node_1][2] + node_coords[node_2][2])/3.0;
+    return EiVector3d(centroid_x, centroid_y, centroid_z);
+
 }
 
 int main() {
@@ -197,14 +240,35 @@ int connectivity [44][3] = {
     scene_coords.push_back(mesh1_coords);
     scene_face_colors.push_back(mesh1_face_colors);
 
-    // Runtime tests
+
     std::chrono::high_resolution_clock::time_point begin1 = std::chrono::high_resolution_clock::now();
-    render_scene(scene_connectivity, scene_coords, scene_face_colors, cameras);
+    compute_triangle_centroid(scene_connectivity, scene_coords);
     std::chrono::high_resolution_clock::time_point end1 = std::chrono::high_resolution_clock::now();
-    std::cout << "Runtime: " << std::chrono::duration_cast<std::chrono::milliseconds> (end1 - begin1) << std::endl;
-    std::cout << "Number of primary rays: " << num_primary_rays << std::endl;
-    std::cout << "Number of intersection tests: " << num_intersection_tests << std::endl;
-    std::cout << "Number of intersections found: " << num_intersections_found << std::endl;
+    std::cout << "Runtime all: " << std::chrono::duration_cast<std::chrono::nanoseconds> (end1 - begin1) << std::endl;
+
+    std::chrono::high_resolution_clock::time_point begin2 = std::chrono::high_resolution_clock::now();
+    size_t num_meshes = scene_coords.size(); // Get number of meshes
+    std::vector<EiVector3d> centroids;
+    // Iterate over meshes in the scene
+    for (size_t mesh_idx = 0; mesh_idx < num_meshes; ++mesh_idx) {
+        const std::vector<std::array<int,3>> connectivity = scene_connectivity[mesh_idx];
+        const std::vector<std::array<double,3>> node_coords = scene_coords[mesh_idx];
+        long long number_of_elements = connectivity.size();
+
+        for (int i=0; i < number_of_elements; i++) {
+            centroids.push_back(compute_triangle_centroid_sing(connectivity, node_coords, i));
+        }
+    }
+    std::chrono::high_resolution_clock::time_point end2 = std::chrono::high_resolution_clock::now();
+    std::cout << "Runtime sep: " << std::chrono::duration_cast<std::chrono::nanoseconds> (end2 - begin2) << std::endl;
+    // Runtime tests
+    //std::chrono::high_resolution_clock::time_point begin1 = std::chrono::high_resolution_clock::now();
+    //render_scene(scene_connectivity, scene_coords, scene_face_colors, cameras);
+    //std::chrono::high_resolution_clock::time_point end1 = std::chrono::high_resolution_clock::now();
+    //std::cout << "Runtime: " << std::chrono::duration_cast<std::chrono::milliseconds> (end1 - begin1) << std::endl;
+    //std::cout << "Number of primary rays: " << num_primary_rays << std::endl;
+    //std::cout << "Number of intersection tests: " << num_intersection_tests << std::endl;
+    //std::cout << "Number of intersections found: " << num_intersections_found << std::endl;
 
     return 0;
 }
