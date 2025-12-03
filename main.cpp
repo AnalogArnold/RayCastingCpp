@@ -293,11 +293,25 @@ int connectivity [44][3] = {
                 int node = connectivity[i][j];
                 temp.expand_to_include_triangle_node(node_coords[node]);
             }
+            aabbs.push_back(temp);
             std:: cout << "triangle number: " << i << std::endl;
             std::cout << "min: " << temp.corner_min[0] << " " << temp.corner_min[1] << " " << temp.corner_min[2] << std::endl;
             std::cout << "max: " << temp.corner_max[0] << " " << temp.corner_max[1] << " " << temp.corner_max[2] << std::endl;
+            for (int j =0; j < 3; j++) {
+                //std::cout << "Axis " << j << "extent: " << aabbs[i].find_axis_extent(j) << std::endl;
+            }
+            std::cout << "Surface area: " << aabbs[i].find_surface_area() << std::endl;
         }
     }
+
+    int triangle_1 = 43;
+    int triangle_2 = 0;
+
+    aabbs[triangle_1].expand_to_include_AABB(aabbs[triangle_2]);
+    //std:: cout << "triangle " << triangle_1 << " to include " << triangle_2 << std::endl;
+    //std::cout << "min: " << aabbs[triangle_1].corner_min[0] << " " << aabbs[triangle_1].corner_min[1] << " " << aabbs[triangle_1].corner_min[2] << std::endl;
+    //std::cout << "max: " << aabbs[triangle_1].corner_max[0] << " " << aabbs[triangle_1].corner_max[1] << " " << aabbs[triangle_1].corner_max[2] << std::endl;
+
 
     // Runtime tests
     //std::chrono::high_resolution_clock::time_point begin1 = std::chrono::high_resolution_clock::now();
